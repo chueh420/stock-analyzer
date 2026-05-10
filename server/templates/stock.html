@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ stock_id }} 籌碼分析</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-200 min-h-screen">
+<div class="max-w-6xl mx-auto p-6">
+
+  <!-- Header -->
+  <div class="flex flex-wrap items-start gap-4 mb-4">
+    <a href="/" class="text-slate-500 hover:text-white text-sm mt-2 shrink-0">← 返回</a>
+    <div class="flex-1 min-w-0">
+      <div class="flex flex-wrap items-baseline gap-3">
+        <span class="text-lg text-slate-400 font-medium" id="stockName">—</span>
+        <span class="text-2xl font-bold font-mono text-white">{{ stock_id }}</span>
+        <span class="text-3xl font-bold font-mono" id="price">—</span>
+        <span class="text-lg font-mono" id="change">—</span>
+        <span class="text-sm text-slate-500" id="date"></span>
+      </div>
+      <!-- 籌碼訊號標籤 -->
+      <div id="signals" class="flex flex-wrap gap-2 mt-3"></div>
+    </div>
+    <!-- 籌碼評分卡 -->
+    <div class="shrink-0 text-center bg-slate-800 border border-slate-700 rounded-xl px-6 py-3">
+      <div class="text-xs text-slate-400 mb-1">籌碼評分</div>
+      <div class="text-4xl font-bold" id="chipScore">—</div>
+      <div class="text-sm font-medium mt-1" id="chipLabel">—</div>
+    </div>
+  </div>
+
+  <!-- ★ 即時行情卡（TWSE 掛單 + Yahoo 分鐘K） -->
+  <div id="liveCard" class="mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <span class="text-sm font-semibold text-slate-200">即時行情</span>
+        <span id="mktStatus" class="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">載入中</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-500" id="liveTime">—</span>
+        <button onclick="fetchLive()" class="text-xs text-slate-500 hover:text-slate-300">↻ 更新</button>
+      </div>
+    </div>
+
+    <!-- 即時 OHLV -->
+    <div class="flex flex-wrap items-end gap-6 mb-4">
+      <div>
+        <div class="text-3xl font-bold font-mono" id="livePrice">—</div>
+        <div class="text-sm font-mono mt-0.5" id="liveChange">—</div>
+      </div>
+      <div class="grid grid-cols-4 gap-x-5 gap-y-1 text-xs pb-0.5">
+        <div><span class="text-slate-500">開盤</span><br><span id="liveOpen" class="font-mono text-slate-200">—</span></div>
+        <div><span class="text-slate-500">最高</span><br><span id="liveHigh" class="font-mono text-red-400">—</span></div>
+        <div><span class="text-slate-500">最低</span><br><span id="liveLow" class="font-mono text-green-400">—</span></div>
+        <div><span class="text-slate-500">成交量</span><br><span id="liveVol" class="font-mono text-slate-200">—</span> 張</div>
+      </div>
+      <div class="ml-auto text-right pb-0.5">
+        <div class="text-xs text-slate-500">VWAP 均價</div>
+        <div class="text-base font-mono font-semibold" id="liveVwap">—</div>
+        <div class="text-xs" id="vwapStatus">—</div>
+      </div>
+    </div>
+
+    <!-- 掛單 + 訊號 -->
+    <div class="grid md:grid-cols-2 gap-4">
+
+      <!-- 委買委賣 5 檔 -->
+      <div>
+        <div class="text-xs text-slate-500 mb-1 text-center">委賣（掛賣）</div>
+        <table class="w-full text-xs mb-1">
+          <tbody id="askTable"></tbody>
+        </table>
+        <div class="h-px bg-slate-600 my-1"></div>
+        <table class="w-full text-xs mt-1">
+          <tbody id="bidTable"></tbody>
+        </table>
+        <div class="text-xs text-slate-500 mt-1 text-center">委買（掛買）</div>
+        <div class="mt-2 text-xs text-center">
+          委買/委賣比：<span id="baRatio" class="font-mono font-bold">—</span>
+          <span id="baLabel" class="ml-1">—</span>
+        </div>
+      </div>
+
+      <!-- 主力/方向訊號 -->
+      <div class="md:border-l md:border-slate-700 md:pl-4">
+        <div class="mb-3">
+          <div class="text-xs text-slate-500 mb-1">主力動向</div>
+          <div class="text-xl font-bold" id="liveBigPlayer">—</div>
+        </div>
+        <div class="mb-3">
+          <div class="text-xs text-slate-500 mb-1">建議方向</div>
+          <div class="text-xl font-bold" id="liveDirection">—</div>
+        </div>
+        <div class="space-y-1 pt-2 border-t border-slate-700" id="liveSignals"></div>
+        <div class="mt-2 text-xs text-slate-600">
+          大單偵測：最大量 <span id="maxMinVol" class="font-mono text-slate-400">—</span> 張/分
+          ，均量 <span id="avgMinVol" class="font-mono text-slate-400">—</span> 張/分
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 即時主力判斷卡 -->
+  <div id="realtimeCard" class="hidden mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="grid md:grid-cols-2 gap-4">
+      <!-- 大戶/散戶 -->
+      <div>
+        <div class="text-xs text-slate-400 mb-2 uppercase tracking-wide">主力動向判斷</div>
+        <div class="text-2xl font-bold mb-2" id="rtBigPlayer">—</div>
+        <div id="rtPlayerSigs" class="space-y-1"></div>
+      </div>
+      <!-- 偏多/偏空 -->
+      <div class="md:border-l md:border-slate-700 md:pl-4">
+        <div class="text-xs text-slate-400 mb-2 uppercase tracking-wide">市場方向訊號</div>
+        <div class="text-2xl font-bold mb-2" id="rtDirection">—</div>
+        <div id="rtDirSigs" class="space-y-1"></div>
+      </div>
+    </div>
+    <div class="mt-3 pt-3 border-t border-slate-700 flex gap-6 text-xs text-slate-400">
+      <span>量比：<span id="rtVolRatio" class="text-slate-200 font-mono">—</span>x</span>
+      <span>外資：<span id="rtForeign" class="font-mono">—</span></span>
+      <span>投信：<span id="rtTrust" class="font-mono">—</span></span>
+      <span>融資：<span id="rtMargin" class="font-mono">—</span></span>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading" class="text-center py-20 text-slate-500">
+    <div class="text-lg mb-2">載入中…</div>
+    <div class="text-sm">正在從 FinMind 抓取資料</div>
+  </div>
+
+  <!-- Charts (hidden until loaded) -->
+  <div id="charts" class="hidden space-y-4">
+
+    <!-- K-line -->
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <div class="flex items-center gap-4 mb-2">
+        <span class="text-sm text-slate-400">K 線走勢</span>
+        <span class="text-xs text-amber-400">▬ MA5</span>
+        <span class="text-xs text-blue-400">▬ MA10</span>
+        <span class="text-xs text-purple-400">▬ MA20</span>
+        <span class="text-xs text-pink-400">▬ MA60</span>
+      </div>
+      <div id="kline" style="height:320px"></div>
+    </div>
+
+    <!-- Volume -->
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <div class="text-sm text-slate-400 mb-2">成交量</div>
+      <div id="vol" style="height:80px"></div>
+    </div>
+
+    <!-- RSI -->
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <div class="text-sm text-slate-400 mb-2">
+        RSI (14)
+        <span class="ml-3 text-xs text-red-400">超買 &gt;70</span>
+        <span class="ml-2 text-xs text-green-400">超賣 &lt;30</span>
+      </div>
+      <div style="position:relative; height:120px">
+        <canvas id="rsi"></canvas>
+      </div>
+    </div>
+
+    <!-- 三大法人 + 融資融券 -->
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+        <div class="text-sm text-slate-400 mb-2">三大法人買賣超（千元，近30日）</div>
+        <canvas id="inst" height="130"></canvas>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+        <div class="text-sm text-slate-400 mb-2">融資融券餘額趨勢</div>
+        <canvas id="margin" height="130"></canvas>
+      </div>
+    </div>
+
+    <!-- 籌碼解讀說明 -->
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 text-sm text-slate-400 space-y-1">
+      <p><span class="text-slate-300 font-medium">大戶買進跡象：</span>外資/投信連續買超 + 融資餘額減少（散戶退出）+ 股價上漲</p>
+      <p><span class="text-slate-300 font-medium">散戶追高跡象：</span>融資餘額快速增加 + 股價同步上漲，追高風險較高</p>
+      <p><span class="text-slate-300 font-medium">籌碼凌亂訊號：</span>融資增加但股價下跌，散戶持續套牢中</p>
+    </div>
+  </div>
+
+  <div id="errMsg" class="hidden text-center py-20 text-red-400 text-lg"></div>
+</div>
+
+<script>
+const STOCK = '{{ stock_id }}';
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = '#334155';
+
+const CARD = '#1e293b';
+
+function clr(v) { return v >= 0 ? '#ef4444' : '#22c55e'; }
+function sign(v) { return v > 0 ? '+' : ''; }
+
+async function load() {
+  try {
+    const r = await fetch(`/api/stock/${STOCK}`);
+    if (!r.ok) {
+      const msg = (await r.json()).detail ?? '查無資料';
+      document.getElementById('errMsg').textContent = msg;
+      document.getElementById('errMsg').classList.remove('hidden');
+      document.getElementById('loading').classList.add('hidden');
+      return;
+    }
+    const data = await r.json();
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('charts').classList.remove('hidden');
+
+    renderHeader(data);
+    renderKlineVol(data);
+    renderRSI(data);
+    renderInstitutional(data);
+    renderMargin(data);
+    renderChip(data.chip);
+    renderRealtime(data.realtime, data.stock_name);
+  } catch (e) {
+    document.getElementById('errMsg').textContent = '載入失敗：' + e.message;
+    document.getElementById('errMsg').classList.remove('hidden');
+    document.getElementById('loading').classList.add('hidden');
+  }
+}
+
+function renderHeader(data) {
+  if (!data.price?.length) return;
+  const latest = data.price.at(-1);
+  const prev = data.price.at(-2) ?? latest;
+  const change = latest.close - prev.close;
+  const pct = (change / prev.close * 100).toFixed(2);
+  const c = clr(change);
+  const s = sign(change);
+
+  if (data.stock_name) {
+    document.getElementById('stockName').textContent = data.stock_name;
+    document.title = `${data.stock_name} ${STOCK} 籌碼分析`;
+  }
+  document.getElementById('price').style.color = c;
+  document.getElementById('price').textContent = latest.close.toFixed(2);
+  document.getElementById('change').style.color = c;
+  document.getElementById('change').textContent = `${s}${change.toFixed(2)} (${s}${pct}%)`;
+  document.getElementById('date').textContent = latest.date;
+}
+
+// 大戶/散戶顏色 map
+const colorMap = {
+  red:    { text: '#fca5a5', bg: 'rgba(127,29,29,0.4)', border: '#7f1d1d' },
+  orange: { text: '#fdba74', bg: 'rgba(124,45,18,0.4)', border: '#7c2d12' },
+  yellow: { text: '#fde68a', bg: 'rgba(120,53,15,0.4)', border: '#78350f' },
+  gray:   { text: '#94a3b8', bg: 'rgba(30,41,59,0.4)',  border: '#334155' },
+  cyan:   { text: '#67e8f9', bg: 'rgba(21,94,117,0.4)', border: '#155e75' },
+  blue:   { text: '#93c5fd', bg: 'rgba(30,58,138,0.4)', border: '#1e3a8a' },
+};
+
+function renderRealtime(rt, name) {
+  if (!rt) return;
+  const card = document.getElementById('realtimeCard');
+  card.classList.remove('hidden');
+
+  const bpC = colorMap[rt.bp_color] || colorMap.gray;
+  const bpEl = document.getElementById('rtBigPlayer');
+  bpEl.textContent = rt.big_player;
+  bpEl.style.color = bpC.text;
+  card.style.borderColor = bpC.border;
+
+  const dirC = colorMap[rt.dir_color] || colorMap.gray;
+  const dirEl = document.getElementById('rtDirection');
+  dirEl.textContent = rt.direction;
+  dirEl.style.color = dirC.text;
+
+  const pSig = document.getElementById('rtPlayerSigs');
+  pSig.innerHTML = rt.player_signals.map(s =>
+    `<div class="text-xs text-slate-300 flex items-center gap-1"><span class="text-slate-500">▸</span>${s}</div>`
+  ).join('');
+
+  const dSig = document.getElementById('rtDirSigs');
+  dSig.innerHTML = rt.direction_signals.map(s =>
+    `<div class="text-xs text-slate-300 flex items-center gap-1"><span class="text-slate-500">▸</span>${s}</div>`
+  ).join('');
+
+  const s = v => v > 0 ? '+' : '';
+  document.getElementById('rtVolRatio').textContent = rt.vol_ratio?.toFixed(2) ?? '—';
+  document.getElementById('rtForeign').textContent =
+    rt.foreign_net != null ? `${s(rt.foreign_net)}${Math.round(rt.foreign_net / 1000).toLocaleString()}K` : '—';
+  document.getElementById('rtTrust').textContent =
+    rt.trust_net != null ? `${s(rt.trust_net)}${Math.round(rt.trust_net / 1000).toLocaleString()}K` : '—';
+  document.getElementById('rtMargin').textContent =
+    rt.margin_change != null ? `${s(rt.margin_change)}${Math.round(rt.margin_change / 1000).toLocaleString()}張` : '—';
+}
+
+function renderKlineVol(data) {
+  // K-line chart
+  const kEl = document.getElementById('kline');
+  const kChart = LightweightCharts.createChart(kEl, {
+    width: kEl.clientWidth,
+    height: 320,
+    layout: { backgroundColor: '#1e293b', textColor: '#94a3b8' },
+    grid: { vertLines: { color: '#334155' }, horzLines: { color: '#334155' } },
+    rightPriceScale: { borderColor: '#475569' },
+    timeScale: { borderColor: '#475569', timeVisible: false },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  });
+
+  const candle = kChart.addCandlestickSeries({
+    upColor: '#ef4444', downColor: '#22c55e',
+    borderUpColor: '#ef4444', borderDownColor: '#22c55e',
+    wickUpColor: '#ef4444', wickDownColor: '#22c55e',
+  });
+  candle.setData(data.price.map(r => ({
+    time: r.date, open: r.open, high: r.max, low: r.min, close: r.close
+  })));
+
+  const maStyles = [
+    ['ma5', '#f59e0b'], ['ma10', '#3b82f6'], ['ma20', '#a855f7'], ['ma60', '#ec4899']
+  ];
+  for (const [key, color] of maStyles) {
+    const d = (data[key] || [])
+      .map((v, i) => v != null ? { time: data.price[i].date, value: v } : null)
+      .filter(Boolean);
+    if (d.length) {
+      const s = kChart.addLineSeries({
+        color, lineWidth: 1.5,
+        lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+      });
+      s.setData(d);
+    }
+  }
+
+  kChart.timeScale().fitContent();
+  window.addEventListener('resize', () => kChart.applyOptions({ width: kEl.clientWidth }));
+
+  // Volume chart
+  const vEl = document.getElementById('vol');
+  const vChart = LightweightCharts.createChart(vEl, {
+    width: vEl.clientWidth,
+    height: 80,
+    layout: { backgroundColor: '#1e293b', textColor: '#94a3b8' },
+    grid: { vertLines: { color: '#334155' }, horzLines: { color: 'transparent' } },
+    rightPriceScale: { borderColor: '#475569', scaleMargins: { top: 0, bottom: 0 } },
+    timeScale: { borderColor: '#475569' },
+  });
+  const vol = vChart.addHistogramSeries({
+    color: '#3b82f6',
+    priceFormat: { type: 'volume' },
+  });
+  vol.setData(data.price.map(r => ({
+    time: r.date,
+    value: r.Trading_Volume ?? 0,
+    color: r.close >= r.open ? '#ef444480' : '#22c55e80',
+  })));
+  vChart.timeScale().fitContent();
+  window.addEventListener('resize', () => vChart.applyOptions({ width: vEl.clientWidth }));
+}
+
+function renderRSI(data) {
+  const labels = data.price.map(r => r.date);
+  new Chart(document.getElementById('rsi'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'RSI', data: data.rsi,
+        borderColor: '#f59e0b', borderWidth: 1.5,
+        pointRadius: 0, fill: false, spanGaps: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          min: 0, max: 100, grid: { color: '#334155' },
+          ticks: { color: '#94a3b8', stepSize: 20 },
+        }
+      }
+    }
+  });
+}
+
+function renderInstitutional(data) {
+  const dm = {};
+  for (const r of data.institutional) {
+    if (!dm[r.date]) dm[r.date] = { f: 0, t: 0, d: 0 };
+    if (r.name === 'Foreign_Investor') dm[r.date].f += r.buy_sell;
+    else if (r.name === 'Investment_Trust') dm[r.date].t += r.buy_sell;
+    else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging') dm[r.date].d += r.buy_sell;
+  }
+  const dates = Object.keys(dm).sort().slice(-30);
+  const fv = dates.map(d => dm[d].f);
+  const tv = dates.map(d => dm[d].t);
+  const dv = dates.map(d => dm[d].d);
+
+  const bars = (arr, posC, negC) => ({
+    backgroundColor: arr.map(v => v >= 0 ? posC + 'b3' : negC + 'b3'),
+    borderColor: arr.map(v => v >= 0 ? posC : negC),
+    borderWidth: 1,
+  });
+
+  new Chart(document.getElementById('inst'), {
+    type: 'bar',
+    data: {
+      labels: dates,
+      datasets: [
+        { label: '外資', data: fv, ...bars(fv, '#ef4444', '#22c55e') },
+        { label: '投信', data: tv, ...bars(tv, '#3b82f6', '#eab308') },
+        { label: '自營', data: dv, ...bars(dv, '#a855f7', '#6b7280') },
+      ]
+    },
+    options: {
+      responsive: true, animation: false,
+      plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 10, padding: 10 } } },
+      scales: {
+        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { display: false } },
+        y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+      }
+    }
+  });
+}
+
+function renderMargin(data) {
+  const dates = data.margin.map(r => r.date);
+  new Chart(document.getElementById('margin'), {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [
+        {
+          label: '融資餘額', data: data.margin.map(r => r.MarginPurchaseTodayBalance),
+          borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: false,
+        },
+        {
+          label: '融券餘額', data: data.margin.map(r => r.ShortSaleTodayBalance),
+          borderColor: '#3b82f6', borderWidth: 1.5, pointRadius: 0, fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true, animation: false,
+      plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 10, padding: 10 } } },
+      scales: {
+        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { display: false } },
+        y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+      }
+    }
+  });
+}
+
+function renderChip(chip) {
+  const score = chip.score;
+  const color =
+    score >= 70 ? '#ef4444' :
+    score >= 55 ? '#f97316' :
+    score >= 45 ? '#94a3b8' :
+    score >= 30 ? '#22d3ee' : '#3b82f6';
+
+  document.getElementById('chipScore').textContent = score;
+  document.getElementById('chipScore').style.color = color;
+  document.getElementById('chipLabel').textContent = chip.label;
+  document.getElementById('chipLabel').style.color = color;
+
+  const sig = document.getElementById('signals');
+  for (const s of chip.signals) {
+    const tag = document.createElement('span');
+    tag.className = 'text-xs bg-slate-700 text-slate-300 rounded-full px-3 py-1';
+    tag.textContent = s;
+    sig.appendChild(tag);
+  }
+}
+
+// ─── 即時行情 ───────────────────────────────────────────────────────────────
+let _liveTimer = null;
+
+async function fetchLive() {
+  try {
+    const r = await fetch(`/api/live/${STOCK}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    renderLive(d);
+
+    if (d.market_open) {
+      if (!_liveTimer) _liveTimer = setInterval(fetchLive, 5000);
+    } else {
+      clearInterval(_liveTimer);
+      _liveTimer = null;
+    }
+  } catch (e) {
+    console.error('fetchLive:', e);
+  }
+}
+
+function renderLive(d) {
+  // 市場狀態
+  const mkt = document.getElementById('mktStatus');
+  if (d.market_open) {
+    mkt.textContent = '● 交易中';
+    mkt.className = 'text-xs px-2 py-0.5 rounded-full bg-green-900/50 text-green-400 border border-green-700';
+  } else {
+    mkt.textContent = '○ 休市';
+    mkt.className = 'text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400';
+  }
+  if (d.time) document.getElementById('liveTime').textContent = d.time;
+
+  // 即時價格 & 漲跌
+  const cur = d.current, yest = d.yesterday || d.current;
+  const chg = cur != null && yest ? cur - yest : null;
+  const pct = chg != null && yest ? chg / yest * 100 : null;
+  const priceEl = document.getElementById('livePrice');
+  const changeEl = document.getElementById('liveChange');
+  if (cur != null) {
+    priceEl.textContent = cur.toFixed(2);
+    priceEl.style.color = chg >= 0 ? '#ef4444' : '#22c55e';
+  }
+  if (chg != null) {
+    const s = chg > 0 ? '+' : '';
+    changeEl.textContent = `${s}${chg.toFixed(2)} (${s}${pct.toFixed(2)}%)`;
+    changeEl.style.color = chg >= 0 ? '#ef4444' : '#22c55e';
+  }
+
+  // OHLV
+  if (d.open  != null) document.getElementById('liveOpen').textContent = d.open.toFixed(2);
+  if (d.high  != null) document.getElementById('liveHigh').textContent = d.high.toFixed(2);
+  if (d.low   != null) document.getElementById('liveLow').textContent  = d.low.toFixed(2);
+  if (d.volume != null) document.getElementById('liveVol').textContent = Math.round(d.volume / 1000).toLocaleString();
+
+  // VWAP
+  if (d.vwap != null) {
+    document.getElementById('liveVwap').textContent = d.vwap.toFixed(2);
+    const vs = document.getElementById('vwapStatus');
+    vs.textContent = d.above_vwap ? '強勢站上均價' : '跌破均價';
+    vs.style.color  = d.above_vwap ? '#ef4444' : '#22c55e';
+  }
+
+  // 委買/委賣 5 檔
+  _renderBidAsk(d);
+
+  // 委買委賣比
+  if (d.bid_ask_ratio != null) {
+    const ratio = d.bid_ask_ratio;
+    const re = document.getElementById('baRatio');
+    const le = document.getElementById('baLabel');
+    re.textContent = ratio.toFixed(2);
+    if (ratio >= 2.0) {
+      re.style.color = '#ef4444'; le.textContent = '大量買盤掛單'; le.style.color = '#ef4444';
+    } else if (ratio <= 0.5) {
+      re.style.color = '#22c55e'; le.textContent = '大量賣盤掛單'; le.style.color = '#22c55e';
+    } else {
+      re.style.color = '#94a3b8'; le.textContent = '委買委賣平衡'; le.style.color = '#94a3b8';
+    }
+  }
+
+  // 主力動向 & 建議方向
+  const bpC  = colorMap[d.bp_color]  || colorMap.gray;
+  const dirC = colorMap[d.dir_color] || colorMap.gray;
+  const bpEl  = document.getElementById('liveBigPlayer');
+  const dirEl = document.getElementById('liveDirection');
+  bpEl.textContent  = d.big_player || '—'; bpEl.style.color  = bpC.text;
+  dirEl.textContent = d.direction  || '—'; dirEl.style.color = dirC.text;
+
+  // 訊號列表
+  const sigsEl = document.getElementById('liveSignals');
+  sigsEl.innerHTML = (d.signals || []).map(s =>
+    `<div class="text-xs text-slate-300 flex items-center gap-1"><span class="text-slate-500">▸</span>${s}</div>`
+  ).join('');
+
+  // 大單統計
+  if (d.max_min_vol != null) document.getElementById('maxMinVol').textContent = Math.round(d.max_min_vol).toLocaleString();
+  if (d.avg_min_vol != null) document.getElementById('avgMinVol').textContent = Math.round(d.avg_min_vol).toLocaleString();
+}
+
+function _renderBidAsk(d) {
+  const ap = d.ask_prices || [], av = d.ask_vols || [];
+  const bp = d.bid_prices || [], bv = d.bid_vols || [];
+  const maxVol = Math.max(...[...av, ...bv].filter(v => v > 0), 1);
+
+  // 委賣：由高到低顯示（5→1），最佳賣價靠近分隔線
+  document.getElementById('askTable').innerHTML =
+    [...ap].reverse().map((price, i) => {
+      const idx = ap.length - 1 - i;
+      const vol = av[idx] || 0;
+      const bar = Math.round(vol / maxVol * 100);
+      return `<tr>
+        <td class="text-right pr-2 py-0.5 text-slate-500 text-xs w-5">${ap.length - i}</td>
+        <td class="text-right pr-3 py-0.5 font-mono text-green-300">${price != null ? price.toFixed(2) : '—'}</td>
+        <td class="py-0.5 relative">
+          <div class="absolute inset-y-0 right-0 bg-green-900/40 rounded" style="width:${bar}%"></div>
+          <span class="relative font-mono text-slate-300 pl-2 pr-1">${vol ? vol.toLocaleString() : '—'}</span>
+        </td>
+      </tr>`;
+    }).join('');
+
+  // 委買：由高到低顯示（1→5），最佳買價靠近分隔線
+  document.getElementById('bidTable').innerHTML =
+    bp.map((price, i) => {
+      const vol = bv[i] || 0;
+      const bar = Math.round(vol / maxVol * 100);
+      return `<tr>
+        <td class="text-right pr-2 py-0.5 text-slate-500 text-xs w-5">${i + 1}</td>
+        <td class="text-right pr-3 py-0.5 font-mono text-red-300">${price != null ? price.toFixed(2) : '—'}</td>
+        <td class="py-0.5 relative">
+          <div class="absolute inset-y-0 right-0 bg-red-900/40 rounded" style="width:${bar}%"></div>
+          <span class="relative font-mono text-slate-300 pl-2 pr-1">${vol ? vol.toLocaleString() : '—'}</span>
+        </td>
+      </tr>`;
+    }).join('');
+}
+
+load();
+fetchLive();
+</script>
+</body>
+</html>

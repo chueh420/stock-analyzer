@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>台股籌碼分析</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-200 min-h-screen">
+<div class="max-w-7xl mx-auto p-6">
+
+  <!-- Header -->
+  <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <div>
+      <h1 class="text-2xl font-bold text-white">台股籌碼分析</h1>
+      <p class="text-slate-400 text-sm mt-1">三大法人・融資融券・技術指標・大戶/散戶判斷</p>
+    </div>
+    <button id="scanBtn" onclick="scanAll()"
+      class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg font-medium transition">
+      掃描全部
+    </button>
+  </div>
+
+  <!-- Add stock with autocomplete -->
+  <div class="flex gap-3 mb-6">
+    <div class="relative flex-1">
+      <input id="inp" type="text" placeholder="輸入代碼或名稱搜尋（如 台積電、2330）"
+        autocomplete="off"
+        oninput="onInpChange()"
+        onkeydown="onInpKey(event)"
+        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+      <!-- 下拉選單 -->
+      <ul id="suggest" class="hidden absolute z-50 left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-600 rounded-lg overflow-hidden shadow-xl max-h-72 overflow-y-auto"></ul>
+    </div>
+    <button onclick="addStock()"
+      class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-medium transition">
+      新增
+    </button>
+  </div>
+
+  <!-- Table -->
+  <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-slate-700 text-slate-400 text-xs uppercase tracking-wide">
+            <th class="text-left px-4 py-3">名稱 / 代碼</th>
+            <th class="text-right px-4 py-3">收盤</th>
+            <th class="text-right px-4 py-3">漲跌幅</th>
+            <th class="text-right px-4 py-3">外資買賣超</th>
+            <th class="text-right px-4 py-3">投信買賣超</th>
+            <th class="text-right px-4 py-3">融資變化</th>
+            <th class="text-center px-4 py-3">主力動向</th>
+            <th class="text-center px-4 py-3">市場方向</th>
+            <th class="text-right px-4 py-3">籌碼評分</th>
+            <th class="px-3 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in stocks %}
+          <tr id="row-{{ s }}"
+            class="border-b border-slate-700/50 hover:bg-slate-700/40 cursor-pointer transition"
+            onclick="location.href='/stock/{{ s }}'">
+            <td class="px-4 py-3">
+              <div class="font-mono font-bold text-blue-400 text-base">{{ s }}</div>
+              <div class="text-slate-500 text-xs" id="{{ s }}-name">載入中…</div>
+            </td>
+            <td class="px-4 py-3 text-right font-mono" id="{{ s }}-close">—</td>
+            <td class="px-4 py-3 text-right" id="{{ s }}-chg">—</td>
+            <td class="px-4 py-3 text-right font-mono text-xs" id="{{ s }}-fgn">—</td>
+            <td class="px-4 py-3 text-right font-mono text-xs" id="{{ s }}-tst">—</td>
+            <td class="px-4 py-3 text-right font-mono text-xs" id="{{ s }}-mgn">—</td>
+            <td class="px-4 py-3 text-center" id="{{ s }}-bp">—</td>
+            <td class="px-4 py-3 text-center" id="{{ s }}-dir">—</td>
+            <td class="px-4 py-3 text-right" id="{{ s }}-chip">—</td>
+            <td class="px-3 py-3 text-right">
+              <button onclick="event.stopPropagation(); del('{{ s }}')"
+                class="text-slate-600 hover:text-red-400 transition text-lg leading-none">×</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not stocks %}
+    <div class="text-center py-16 text-slate-500">
+      <p class="text-lg">自選股清單為空</p>
+      <p class="text-sm mt-1">輸入股票代碼後按 Enter 新增</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="flex items-center justify-between mt-4">
+    <p class="text-slate-600 text-xs">資料來源：FinMind API・T+1 更新</p>
+    <p class="text-slate-600 text-xs">外資/投信單位：千元　融資單位：張</p>
+  </div>
+</div>
+
+<script>
+const sign = v => v > 0 ? '+' : '';
+const clr = v => v > 0 ? 'text-red-400' : v < 0 ? 'text-green-400' : 'text-slate-300';
+
+// ── 自動完成 ────────────────────────────────────────────────────────────────
+let _suggestTimer = null;
+let _suggestIdx = -1;
+let _suggestItems = [];
+
+function onInpChange() {
+  clearTimeout(_suggestTimer);
+  _suggestTimer = setTimeout(doSearch, 250);
+}
+
+async function doSearch() {
+  const q = document.getElementById('inp').value.trim();
+  const box = document.getElementById('suggest');
+  if (!q) { hideSuggest(); return; }
+  try {
+    const data = await fetch(`/api/search?q=${encodeURIComponent(q)}`).then(r => r.json());
+    _suggestItems = data;
+    _suggestIdx = -1;
+    if (!data.length) { hideSuggest(); return; }
+    box.innerHTML = data.map((s, i) =>
+      `<li data-i="${i}"
+          class="flex items-center gap-3 px-4 py-2 cursor-pointer hover:bg-slate-700 transition text-sm"
+          onmousedown="pickSuggest(${i})">
+         <span class="font-mono text-blue-400 w-14 shrink-0">${s.stock_id}</span>
+         <span class="text-slate-200">${s.stock_name}</span>
+         <span class="ml-auto text-xs text-slate-500">${s.type === 'twse' ? '上市' : '上櫃'}</span>
+       </li>`
+    ).join('');
+    box.classList.remove('hidden');
+  } catch(e) { hideSuggest(); }
+}
+
+function onInpKey(e) {
+  const box = document.getElementById('suggest');
+  if (box.classList.contains('hidden')) {
+    if (e.key === 'Enter') addStock();
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _suggestIdx = Math.min(_suggestIdx + 1, _suggestItems.length - 1);
+    highlightSuggest();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _suggestIdx = Math.max(_suggestIdx - 1, -1);
+    highlightSuggest();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (_suggestIdx >= 0) pickSuggest(_suggestIdx);
+    else { hideSuggest(); addStock(); }
+  } else if (e.key === 'Escape') {
+    hideSuggest();
+  }
+}
+
+function highlightSuggest() {
+  const items = document.querySelectorAll('#suggest li');
+  items.forEach((el, i) => {
+    el.classList.toggle('bg-slate-700', i === _suggestIdx);
+  });
+}
+
+function pickSuggest(i) {
+  const s = _suggestItems[i];
+  if (!s) return;
+  document.getElementById('inp').value = s.stock_id;
+  hideSuggest();
+  addStock();
+}
+
+function hideSuggest() {
+  document.getElementById('suggest').classList.add('hidden');
+  _suggestItems = [];
+  _suggestIdx = -1;
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#inp') && !e.target.closest('#suggest')) hideSuggest();
+});
+// ────────────────────────────────────────────────────────────────────────────
+
+// 大戶動向顏色
+const bpStyle = {
+  red:    'bg-red-900/50 text-red-300 border border-red-700',
+  orange: 'bg-orange-900/50 text-orange-300 border border-orange-700',
+  yellow: 'bg-yellow-900/50 text-yellow-300 border border-yellow-700',
+  gray:   'bg-slate-700/50 text-slate-400 border border-slate-600',
+};
+
+// 市場方向顏色
+const dirStyle = {
+  red:    'bg-red-900/50 text-red-300 border border-red-700',
+  orange: 'bg-orange-900/50 text-orange-300 border border-orange-700',
+  yellow: 'bg-yellow-900/50 text-yellow-300 border border-yellow-700',
+  gray:   'bg-slate-700/50 text-slate-400 border border-slate-600',
+  cyan:   'bg-cyan-900/50 text-cyan-300 border border-cyan-700',
+  blue:   'bg-blue-900/50 text-blue-300 border border-blue-700',
+};
+
+function setEl(id, text, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  if (cls) el.className = cls;
+}
+
+function badge(id, text, styleMap, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<span class="text-xs px-2 py-0.5 rounded-full ${styleMap[color] || styleMap.gray}">${text}</span>`;
+}
+
+async function scanAll() {
+  const btn = document.getElementById('scanBtn');
+  btn.textContent = '掃描中…';
+  btn.disabled = true;
+  try {
+    const data = await fetch('/api/scan').then(r => r.json());
+    for (const s of data) {
+      const id = s.stock_id;
+
+      // 股票名稱
+      setEl(`${id}-name`, s.stock_name || id, 'text-slate-400 text-xs');
+
+      if (s.error) continue;
+
+      setEl(`${id}-close`, s.close?.toFixed(2) ?? '—', `px-4 py-3 text-right font-mono ${clr(s.change)}`);
+      setEl(`${id}-chg`,
+        s.change_pct != null ? `${sign(s.change_pct)}${s.change_pct.toFixed(2)}%` : '—',
+        `px-4 py-3 text-right ${clr(s.change_pct)}`
+      );
+      setEl(`${id}-fgn`,
+        s.foreign_buy_sell != null ? `${sign(s.foreign_buy_sell)}${Math.round(s.foreign_buy_sell / 1000).toLocaleString()}` : '—',
+        `px-4 py-3 text-right font-mono text-xs ${clr(s.foreign_buy_sell)}`
+      );
+      setEl(`${id}-tst`,
+        s.trust_buy_sell != null ? `${sign(s.trust_buy_sell)}${Math.round(s.trust_buy_sell / 1000).toLocaleString()}` : '—',
+        `px-4 py-3 text-right font-mono text-xs ${clr(s.trust_buy_sell)}`
+      );
+      const mc = s.margin_change;
+      setEl(`${id}-mgn`,
+        mc != null ? `${sign(mc)}${Math.round(mc / 1000).toLocaleString()}` : '—',
+        `px-4 py-3 text-right font-mono text-xs ${mc > 0 ? 'text-yellow-400' : mc < 0 ? 'text-cyan-400' : 'text-slate-400'}`
+      );
+
+      badge(`${id}-bp`, s.big_player || '—', bpStyle, s.bp_color || 'gray');
+      badge(`${id}-dir`, s.direction || '—', dirStyle, s.dir_color || 'gray');
+
+      setEl(`${id}-chip`,
+        `${s.chip_score} ${s.chip_label}`,
+        `px-4 py-3 text-right ${s.chip_score >= 70 ? 'text-red-400 font-bold' : s.chip_score >= 55 ? 'text-orange-400' : s.chip_score >= 45 ? 'text-slate-300' : 'text-cyan-400'}`
+      );
+    }
+  } catch (e) {
+    alert('掃描失敗：' + e.message);
+  } finally {
+    btn.textContent = '掃描全部';
+    btn.disabled = false;
+  }
+}
+
+async function addStock() {
+  hideSuggest();
+  const inp = document.getElementById('inp');
+  const id = inp.value.trim();
+  if (!id) return;
+  await fetch('/api/watchlist/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({stock_id: id})
+  });
+  inp.value = '';
+  location.reload();
+}
+
+async function del(id) {
+  if (!confirm(`確定移除 ${id}？`)) return;
+  await fetch(`/api/watchlist/${id}`, {method: 'DELETE'});
+  document.getElementById(`row-${id}`)?.remove();
+}
+
+{% if stocks %}
+scanAll();
+{% endif %}
+</script>
+</body>
+</html>
