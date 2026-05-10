@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
-from analysis import analyze_live, calc_ma, calc_rsi, chip_score, realtime_signal
+from analysis import analyze_live, calc_ma, calc_rsi, chip_score, is_market_open, realtime_signal
 from finmind_api import (get_all_stocks, get_institutional, get_margin,
                          get_price, get_stock_info, get_stock_name,
                          get_twse_quote, get_yahoo_intraday)
@@ -154,6 +154,57 @@ async def api_scan():
 
     results = await asyncio.gather(*[scan_one(s) for s in stocks])
     return list(results)
+
+
+@app.get("/api/bigorder")
+async def api_bigorder():
+    """即時大單偵測：掃描自選股，回傳有大單出現的股票"""
+    stocks = load_wl()
+
+    async def check_one(sid: str) -> dict | None:
+        try:
+            info = await get_stock_info(sid)
+            yf = await get_yahoo_intraday(sid)
+            live = analyze_live({}, yf)
+
+            avg_v = live.get("avg_min_vol") or 0
+            latest_v = live.get("latest_min_vol") or 0
+            max_v = live.get("max_min_vol") or 0
+            if not avg_v:
+                return None
+
+            is_recent = latest_v >= avg_v * 3   # 最新這分鐘爆量
+            has_spike = max_v >= avg_v * 5       # 今日曾出現大單
+            if not (is_recent or has_spike):
+                return None
+
+            spike_vol = latest_v if is_recent else max_v
+            last_bar_up = live.get("last_bar_up")
+            if last_bar_up is True:
+                direction, dir_color = "積極買進", "red"
+            elif last_bar_up is False:
+                direction, dir_color = "出貨賣壓", "green"
+            else:
+                direction, dir_color = "量能放大", "yellow"
+
+            return {
+                "stock_id": sid,
+                "stock_name": info.get("name", sid),
+                "spike_vol": int(spike_vol),
+                "avg_vol": int(avg_v),
+                "multiplier": round(spike_vol / avg_v, 1) if avg_v else 0,
+                "is_recent": is_recent,
+                "direction": direction,
+                "dir_color": dir_color,
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*[check_one(s) for s in stocks])
+    return {
+        "market_open": is_market_open(),
+        "alerts": [r for r in results if r is not None],
+    }
 
 
 @app.get("/api/live/{stock_id}")

@@ -368,13 +368,14 @@ def analyze_live(quote: dict, yf_data: dict) -> dict:
     try:
         chart = yf_data.get("chart", {}).get("result", [{}])[0]
         q = chart.get("indicators", {}).get("quote", [{}])[0]
+        opens = q.get("open", [])
         closes = q.get("close", [])
         volumes = q.get("volume", [])
         highs = q.get("high", [])
         lows = q.get("low", [])
         bars = [
-            {"c": c, "v": v // 1000, "h": h, "l": l}   # 換算成張
-            for c, v, h, l in zip(closes, volumes, highs, lows)
+            {"o": o, "c": c, "v": v // 1000, "h": h, "l": l}
+            for o, c, v, h, l in zip(opens, closes, volumes, highs, lows)
             if c is not None and v is not None
         ]
     except Exception:
@@ -396,6 +397,12 @@ def analyze_live(quote: dict, yf_data: dict) -> dict:
         avg = sum(vols[:-1]) / max(len(vols) - 1, 1)
         result["avg_min_vol"] = round(avg)
         result["max_min_vol"] = max(vols)
+        result["latest_min_vol"] = vols[-1]
+
+        # 最後一根K棒方向（收盤 > 開盤 = 紅K = 買方主導）
+        last = bars[-1]
+        if last.get("o") is not None:
+            result["last_bar_up"] = last["c"] > last["o"]
 
         # 近5分鐘 vs 前5分鐘 量能趨勢
         if len(vols) >= 10:
