@@ -89,11 +89,14 @@ async def get_twse_quote(stock_id: str, stock_type: str = "twse") -> dict:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://mis.twse.com.tw/stock/",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(url, headers=headers)
-        body = r.json()
-        if body.get("rtmessage") == "OK" and body.get("msgArray"):
-            return body["msgArray"][0]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=headers)
+            body = r.json()
+            if body.get("rtmessage") == "OK" and body.get("msgArray"):
+                return body["msgArray"][0]
+    except Exception:
+        pass
     return {}
 
 
@@ -101,9 +104,13 @@ async def get_yahoo_intraday(stock_id: str) -> dict:
     """Yahoo Finance 1分K（計算VWAP、大單偵測）"""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{stock_id}.TW"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(url, params={"interval": "1m", "range": "1d"}, headers=headers)
-        return r.json()
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url, params={"interval": "1m", "range": "1d"}, headers=headers)
+            return r.json()
+    except Exception:
+        pass
+    return {}
 
 
 async def get_price(stock_id: str, days: int = 120) -> list:
