@@ -24,6 +24,8 @@
       </div>
       <!-- 籌碼訊號標籤 -->
       <div id="signals" class="flex flex-wrap gap-2 mt-3"></div>
+      <!-- 乖離率 -->
+      <div id="biasRow" class="flex flex-wrap gap-4 mt-2 text-xs text-slate-400"></div>
     </div>
     <!-- 籌碼評分卡 -->
     <div class="shrink-0 text-center bg-slate-800 border border-slate-700 rounded-xl px-6 py-3">
@@ -167,14 +169,34 @@
       </div>
     </div>
 
+    <!-- MACD -->
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <div class="text-sm text-slate-400 mb-2">
+        MACD <span class="text-xs text-slate-500">(12,26,9)</span>
+        <span class="ml-3 text-xs text-blue-400">▬ MACD</span>
+        <span class="ml-2 text-xs text-orange-400">▬ Signal</span>
+        <span class="ml-2 text-xs text-red-400">■ 正</span>
+        <span class="ml-1 text-xs text-green-400">■ 負</span>
+      </div>
+      <div style="position:relative; height:120px">
+        <canvas id="macdChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 法人/融資持股估算 -->
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <div class="text-sm text-slate-400 mb-3">法人買賣超＆融資餘額（以張計，近60日）</div>
+      <div id="instHoldings" class="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs"></div>
+    </div>
+
     <!-- 三大法人 + 融資融券 -->
     <div class="grid md:grid-cols-2 gap-4">
       <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
-        <div class="text-sm text-slate-400 mb-2">三大法人買賣超（千元，近30日）</div>
+        <div class="text-sm text-slate-400 mb-2">三大法人買賣超（張，近30日）</div>
         <canvas id="inst" height="130"></canvas>
       </div>
       <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
-        <div class="text-sm text-slate-400 mb-2">融資融券餘額趨勢</div>
+        <div class="text-sm text-slate-400 mb-2">融資融券餘額趨勢（張）</div>
         <canvas id="margin" height="130"></canvas>
       </div>
     </div>
@@ -215,8 +237,11 @@ async function load() {
     document.getElementById('charts').classList.remove('hidden');
 
     renderHeader(data);
+    renderBias(data);
     renderKlineVol(data);
     renderRSI(data);
+    renderMACD(data);
+    renderHoldings(data);
     renderInstitutional(data);
     renderMargin(data);
     renderChip(data.chip);
@@ -358,6 +383,98 @@ function renderKlineVol(data) {
   window.addEventListener('resize', () => vChart.applyOptions({ width: vEl.clientWidth }));
 }
 
+function renderBias(data) {
+  const price = data.price;
+  const mas = { '5日': data.ma5, '20日': data.ma20, '60日': data.ma60 };
+  const parts = [];
+  for (const [label, ma] of Object.entries(mas)) {
+    const last = price.length - 1;
+    let m = null;
+    for (let i = last; i >= 0; i--) { if (ma[i] != null) { m = ma[i]; break; } }
+    if (m == null) continue;
+    const c = price[last].close;
+    const bias = ((c - m) / m * 100).toFixed(2);
+    const col = bias >= 0 ? 'text-red-400' : 'text-green-400';
+    const s = bias >= 0 ? '+' : '';
+    parts.push(`<span class="text-slate-500">${label}乖離</span> <span class="font-mono ${col}">${s}${bias}%</span>`);
+  }
+  document.getElementById('biasRow').innerHTML = parts.join('<span class="text-slate-700">|</span>');
+}
+
+function renderMACD(data) {
+  const labels = data.price.map(r => r.date);
+  const md = data.macd;
+  new Chart(document.getElementById('macdChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar', label: 'Histogram', data: md.histogram, order: 3,
+          backgroundColor: md.histogram.map(v => v == null ? 'transparent' : v >= 0 ? 'rgba(239,68,68,0.5)' : 'rgba(34,197,94,0.5)'),
+          borderColor:     md.histogram.map(v => v == null ? 'transparent' : v >= 0 ? '#ef4444' : '#22c55e'),
+          borderWidth: 1,
+        },
+        {
+          type: 'line', label: 'MACD', data: md.macd, order: 1,
+          borderColor: '#3b82f6', borderWidth: 1.5, pointRadius: 0, fill: false, spanGaps: false,
+        },
+        {
+          type: 'line', label: 'Signal', data: md.signal, order: 1,
+          borderColor: '#f97316', borderWidth: 1.5, pointRadius: 0, fill: false, spanGaps: false,
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8', maxTicksLimit: 5 } }
+      }
+    }
+  });
+}
+
+function renderHoldings(data) {
+  const priceLookup = {};
+  for (const r of data.price) priceLookup[r.date] = r.close;
+  const latestPrice = data.price.at(-1)?.close || 1;
+
+  // 各機構近60日累計買賣超（張）
+  const sums = { Foreign_Investor: 0, Investment_Trust: 0, Dealer: 0 };
+  for (const r of data.institutional) {
+    const p = priceLookup[r.date] || latestPrice;
+    const shares = r.buy_sell / p;   // 千元 / 元 ≈ 張
+    if (r.name === 'Foreign_Investor') sums.Foreign_Investor += shares;
+    else if (r.name === 'Investment_Trust') sums.Investment_Trust += shares;
+    else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging') sums.Dealer += shares;
+  }
+
+  const latest = data.margin.at(-1) || {};
+  const marginBal = latest.MarginPurchaseTodayBalance ?? 0;
+  const shortBal  = latest.ShortSaleTodayBalance ?? 0;
+
+  const items = [
+    { label: '外資累計買賣超', val: sums.Foreign_Investor, note: '近60日' },
+    { label: '投信累計買賣超', val: sums.Investment_Trust, note: '近60日' },
+    { label: '自營商累計買賣超', val: sums.Dealer, note: '近60日' },
+    { label: '融資餘額', val: marginBal, note: '最新' },
+    { label: '融券餘額', val: shortBal,  note: '最新' },
+  ];
+
+  document.getElementById('instHoldings').innerHTML = items.map(item => {
+    const v = Math.round(item.val);
+    const col = v >= 0 ? 'text-red-400' : 'text-green-400';
+    const s = v > 0 ? '+' : '';
+    return `<div class="bg-slate-700/50 rounded-lg p-3">
+      <div class="text-slate-500 mb-1 leading-tight">${item.label}<br><span class="text-slate-600">${item.note}</span></div>
+      <div class="font-mono font-bold text-base ${col}">${s}${v.toLocaleString()}</div>
+      <div class="text-slate-600 mt-0.5">張</div>
+    </div>`;
+  }).join('');
+}
+
 function renderRSI(data) {
   const labels = data.price.map(r => r.date);
   new Chart(document.getElementById('rsi'), {
@@ -385,17 +502,23 @@ function renderRSI(data) {
 }
 
 function renderInstitutional(data) {
+  const priceLookup = {};
+  for (const r of data.price) priceLookup[r.date] = r.close;
+  const latestPrice = data.price.at(-1)?.close || 1;
+
   const dm = {};
   for (const r of data.institutional) {
     if (!dm[r.date]) dm[r.date] = { f: 0, t: 0, d: 0 };
-    if (r.name === 'Foreign_Investor') dm[r.date].f += r.buy_sell;
-    else if (r.name === 'Investment_Trust') dm[r.date].t += r.buy_sell;
-    else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging') dm[r.date].d += r.buy_sell;
+    const p = priceLookup[r.date] || latestPrice;
+    const shares = r.buy_sell / p;   // 千元 / 元 ≈ 張
+    if (r.name === 'Foreign_Investor') dm[r.date].f += shares;
+    else if (r.name === 'Investment_Trust') dm[r.date].t += shares;
+    else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging') dm[r.date].d += shares;
   }
   const dates = Object.keys(dm).sort().slice(-30);
-  const fv = dates.map(d => dm[d].f);
-  const tv = dates.map(d => dm[d].t);
-  const dv = dates.map(d => dm[d].d);
+  const fv = dates.map(d => Math.round(dm[d].f));
+  const tv = dates.map(d => Math.round(dm[d].t));
+  const dv = dates.map(d => Math.round(dm[d].d));
 
   const bars = (arr, posC, negC) => ({
     backgroundColor: arr.map(v => v >= 0 ? posC + 'b3' : negC + 'b3'),

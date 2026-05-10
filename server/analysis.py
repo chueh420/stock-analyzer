@@ -34,6 +34,42 @@ def calc_rsi(closes: list, period: int = 14) -> list:
     return result
 
 
+def calc_ema(closes: list, period: int) -> list:
+    if len(closes) < period:
+        return [None] * len(closes)
+    k = 2 / (period + 1)
+    result: list[Optional[float]] = [None] * (period - 1)
+    result.append(round(sum(closes[:period]) / period, 4))
+    for c in closes[period:]:
+        result.append(round(c * k + result[-1] * (1 - k), 4))
+    return result
+
+
+def calc_macd(closes: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
+    ema_f = calc_ema(closes, fast)
+    ema_s = calc_ema(closes, slow)
+    macd_line = [
+        round(f - s, 4) if f is not None and s is not None else None
+        for f, s in zip(ema_f, ema_s)
+    ]
+    valid = [(i, v) for i, v in enumerate(macd_line) if v is not None]
+    sig_line: list[Optional[float]] = [None] * len(macd_line)
+    if len(valid) >= signal:
+        k = 2 / (signal + 1)
+        seed_idx = valid[signal - 1][0]
+        sig_line[seed_idx] = round(sum(v for _, v in valid[:signal]) / signal, 4)
+        prev = seed_idx
+        for i in range(signal, len(valid)):
+            idx, val = valid[i]
+            sig_line[idx] = round(val * k + sig_line[prev] * (1 - k), 4)
+            prev = idx
+    histogram = [
+        round(m - s, 4) if m is not None and s is not None else None
+        for m, s in zip(macd_line, sig_line)
+    ]
+    return {"macd": macd_line, "signal": sig_line, "histogram": histogram}
+
+
 def chip_score(institutional: list, margin: list, prices: list) -> dict:
     score = 50
     signals = []

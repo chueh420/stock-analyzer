@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
-from analysis import analyze_live, calc_ma, calc_rsi, chip_score, is_market_open, realtime_signal
+from analysis import analyze_live, calc_ma, calc_macd, calc_rsi, chip_score, is_market_open, realtime_signal
 from finmind_api import (get_all_stocks, get_institutional, get_margin,
                          get_price, get_stock_info, get_stock_name,
                          get_twse_quote, get_yahoo_intraday)
@@ -84,6 +84,7 @@ async def api_stock(stock_id: str):
         "ma20": ma20,
         "ma60": ma60,
         "rsi": rsi,
+        "macd": calc_macd(closes),
         "institutional": inst,
         "margin": margin,
         "chip": chip_score(inst, margin, prices),
