@@ -185,10 +185,27 @@
       </div>
     </div>
 
-    <!-- 法人/融資持股估算 -->
+    <!-- 法人 + 融資券明細表 -->
     <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
-      <div class="text-sm text-slate-400 mb-3">法人買賣超＆融資餘額（以張計，近60日）</div>
-      <div id="instHoldings" class="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs"></div>
+      <div class="flex items-baseline gap-3 mb-3">
+        <span class="text-sm text-slate-400">三大法人 + 融資券明細</span>
+        <span class="text-xs text-slate-600">近60日・單位：張</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-slate-500 border-b border-slate-700 text-right">
+              <th class="text-left py-2 pr-4 font-normal">機構</th>
+              <th class="py-2 px-3 font-normal">買入(張)</th>
+              <th class="py-2 px-3 font-normal">賣出(張)</th>
+              <th class="py-2 px-3 font-normal">淨買賣</th>
+              <th class="py-2 pl-3 font-normal">持有 / 餘額</th>
+            </tr>
+          </thead>
+          <tbody id="holdingsTbody"></tbody>
+        </table>
+      </div>
+      <p class="text-xs text-slate-700 mt-2">＊法人張數為千元÷當日收盤估算；融資券張數為 TWSE 實際數字</p>
     </div>
 
     <!-- 三大法人 + 融資融券 -->
@@ -443,37 +460,57 @@ function renderHoldings(data) {
   for (const r of data.price) priceLookup[r.date] = r.close;
   const latestPrice = data.price.at(-1)?.close || 1;
 
-  // 各機構近60日累計買賣超（張）
-  const sums = { Foreign_Investor: 0, Investment_Trust: 0, Dealer: 0 };
+  // ── 三大法人：千元 → 張（估算）──
+  const inst = {
+    Foreign_Investor: { buy: 0, sell: 0 },
+    Investment_Trust: { buy: 0, sell: 0 },
+    Dealer:           { buy: 0, sell: 0 },
+  };
   for (const r of data.institutional) {
     const p = priceLookup[r.date] || latestPrice;
-    const shares = r.buy_sell / p;   // 千元 / 元 ≈ 張
-    if (r.name === 'Foreign_Investor') sums.Foreign_Investor += shares;
-    else if (r.name === 'Investment_Trust') sums.Investment_Trust += shares;
-    else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging') sums.Dealer += shares;
+    const buyZ  = (r.buy  || 0) / p;
+    const sellZ = (r.sell || 0) / p;
+    if      (r.name === 'Foreign_Investor')                          { inst.Foreign_Investor.buy += buyZ; inst.Foreign_Investor.sell += sellZ; }
+    else if (r.name === 'Investment_Trust')                          { inst.Investment_Trust.buy  += buyZ; inst.Investment_Trust.sell  += sellZ; }
+    else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging'){ inst.Dealer.buy += buyZ; inst.Dealer.sell += sellZ; }
   }
 
-  const latest = data.margin.at(-1) || {};
-  const marginBal = latest.MarginPurchaseTodayBalance ?? 0;
-  const shortBal  = latest.ShortSaleTodayBalance ?? 0;
+  // ── 融資券：直接是張（實際數字）──
+  let mBuy = 0, mSell = 0, sBuy = 0, sSell = 0;
+  for (const r of data.margin) {
+    mBuy  += r.MarginPurchaseBuy          || 0;
+    mSell += r.MarginPurchaseSell         || 0;
+    sBuy  += r.ShortSaleBuy               || 0;
+    sSell += r.ShortSaleSell              || 0;
+  }
+  const latest  = data.margin.at(-1) || {};
+  const mBal    = latest.MarginPurchaseTodayBalance || 0;
+  const sBal    = latest.ShortSaleTodayBalance      || 0;
 
-  const items = [
-    { label: '外資累計買賣超', val: sums.Foreign_Investor, note: '近60日' },
-    { label: '投信累計買賣超', val: sums.Investment_Trust, note: '近60日' },
-    { label: '自營商累計買賣超', val: sums.Dealer, note: '近60日' },
-    { label: '融資餘額', val: marginBal, note: '最新' },
-    { label: '融券餘額', val: shortBal,  note: '最新' },
+  const rows = [
+    { name: '外資',   buy: inst.Foreign_Investor.buy,  sell: inst.Foreign_Investor.sell,  bal: null, balLabel: '—', est: true  },
+    { name: '投信',   buy: inst.Investment_Trust.buy,  sell: inst.Investment_Trust.sell,  bal: null, balLabel: '—', est: true  },
+    { name: '自營商', buy: inst.Dealer.buy,             sell: inst.Dealer.sell,             bal: null, balLabel: '—', est: true  },
+    { name: '融資',   buy: mBuy,                        sell: mSell,                        bal: mBal, balLabel: null, est: false },
+    { name: '融券',   buy: sSell,                       sell: sBuy,                         bal: sBal, balLabel: null, est: false },
   ];
 
-  document.getElementById('instHoldings').innerHTML = items.map(item => {
-    const v = Math.round(item.val);
-    const col = v >= 0 ? 'text-red-400' : 'text-green-400';
-    const s = v > 0 ? '+' : '';
-    return `<div class="bg-slate-700/50 rounded-lg p-3">
-      <div class="text-slate-500 mb-1 leading-tight">${item.label}<br><span class="text-slate-600">${item.note}</span></div>
-      <div class="font-mono font-bold text-base ${col}">${s}${v.toLocaleString()}</div>
-      <div class="text-slate-600 mt-0.5">張</div>
-    </div>`;
+  const fmt = v => Math.round(v).toLocaleString();
+  const netCls = v => v >= 0 ? 'text-red-400' : 'text-green-400';
+  const netSign = v => v > 0 ? '+' : '';
+
+  document.getElementById('holdingsTbody').innerHTML = rows.map(r => {
+    const net = r.buy - r.sell;
+    const balStr = r.balLabel !== null ? r.balLabel
+      : `<span class="font-mono font-bold ${r.bal >= 0 ? 'text-slate-200' : 'text-slate-400'}">${fmt(r.bal)}</span>`;
+    const estTag = r.est ? '<span class="text-slate-600 ml-1">估算</span>' : '<span class="text-blue-900 text-slate-500 ml-1">實際</span>';
+    return `<tr class="border-b border-slate-700/40 hover:bg-slate-700/20">
+      <td class="py-2 pr-4 font-medium text-slate-300">${r.name}</td>
+      <td class="py-2 px-3 text-right font-mono text-red-300">${fmt(r.buy)}</td>
+      <td class="py-2 px-3 text-right font-mono text-green-300">${fmt(r.sell)}</td>
+      <td class="py-2 px-3 text-right font-mono font-bold ${netCls(net)}">${netSign(net)}${fmt(net)}</td>
+      <td class="py-2 pl-3 text-right">${balStr}${estTag}</td>
+    </tr>`;
   }).join('');
 }
 
