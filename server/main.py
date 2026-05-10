@@ -12,7 +12,9 @@ from finmind_api import (get_all_stocks, get_institutional, get_margin,
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-WATCHLIST = Path("watchlist.json")
+# Railway Volume 掛載在 /data，若不存在則用目前目錄（本機開發）
+_data_dir = Path("/data") if Path("/data").exists() else Path(".")
+WATCHLIST = _data_dir / "watchlist.json"
 DEFAULT_STOCKS = ["2330", "2317", "2454"]
 
 

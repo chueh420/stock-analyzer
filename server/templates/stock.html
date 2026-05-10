@@ -38,9 +38,11 @@
   <!-- ★ 即時行情卡（TWSE 掛單 + Yahoo 分鐘K） -->
   <div id="liveCard" class="mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
     <div class="flex items-center justify-between mb-3">
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         <span class="text-sm font-semibold text-slate-200">即時行情</span>
         <span id="mktStatus" class="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">載入中</span>
+        <span id="liveDirBadge" class="hidden text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400"></span>
+        <span id="liveBpBadge"  class="hidden text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400"></span>
       </div>
       <div class="flex items-center gap-3">
         <span class="text-xs text-slate-500" id="liveTime">—</span>
@@ -697,6 +699,28 @@ function renderLive(d) {
   const dirEl = document.getElementById('liveDirection');
   bpEl.textContent  = d.big_player || '—'; bpEl.style.color  = bpC.text;
   dirEl.textContent = d.direction  || '—'; dirEl.style.color = dirC.text;
+
+  // 標題列小 badge（即時可見）
+  const dirBadge = document.getElementById('liveDirBadge');
+  const bpBadge  = document.getElementById('liveBpBadge');
+  if (d.direction && d.direction !== '—') {
+    dirBadge.textContent = d.direction;
+    dirBadge.style.color = dirC.text;
+    dirBadge.style.borderColor = dirC.border || '#334155';
+    dirBadge.style.borderWidth = '1px';
+    dirBadge.style.borderStyle = 'solid';
+    dirBadge.className = 'text-xs px-2 py-0.5 rounded-full';
+    dirBadge.classList.remove('hidden');
+  }
+  if (d.big_player && d.big_player !== '—') {
+    bpBadge.textContent = d.big_player;
+    bpBadge.style.color = bpC.text;
+    bpBadge.style.borderColor = bpC.border || '#334155';
+    bpBadge.style.borderWidth = '1px';
+    bpBadge.style.borderStyle = 'solid';
+    bpBadge.className = 'text-xs px-2 py-0.5 rounded-full';
+    bpBadge.classList.remove('hidden');
+  }
 
   // 訊號列表
   const sigsEl = document.getElementById('liveSignals');
