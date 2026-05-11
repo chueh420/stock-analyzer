@@ -744,7 +744,7 @@ function renderLive(d) {
   if (d.open  != null) document.getElementById('liveOpen').textContent = d.open.toFixed(2);
   if (d.high  != null) document.getElementById('liveHigh').textContent = d.high.toFixed(2);
   if (d.low   != null) document.getElementById('liveLow').textContent  = d.low.toFixed(2);
-  if (d.volume != null) document.getElementById('liveVol').textContent = Math.round(d.volume / 1000).toLocaleString();
+  if (d.volume != null) document.getElementById('liveVol').textContent = Math.round(d.volume).toLocaleString();
 
   // VWAP
   if (d.vwap != null) {
