@@ -109,7 +109,7 @@
 
   <div class="flex items-center justify-between mt-4">
     <p class="text-slate-600 text-xs">資料來源：FinMind API・T+1 更新</p>
-    <p class="text-slate-600 text-xs">外資/投信單位：張（千元÷收盤估算）　融資單位：張</p>
+    <p class="text-slate-600 text-xs">外資/投信單位：張（FinMind 股數÷1000）　融資單位：張</p>
   </div>
 </div>
 
@@ -248,10 +248,9 @@ async function scanAll() {
         s.change_pct != null ? `${sign(s.change_pct)}${s.change_pct.toFixed(2)}%` : '—',
         `px-4 py-3 text-right ${clr(s.change_pct)}`
       );
-      // 外資/投信：千元 / 收盤價 ≈ 張
-      const price = s.close || 1;
-      const fgnZ = s.foreign_buy_sell != null ? Math.round(s.foreign_buy_sell / price) : null;
-      const tstZ = s.trust_buy_sell   != null ? Math.round(s.trust_buy_sell   / price) : null;
+      // 外資/投信：FinMind 股數 ÷ 1000 = 張
+      const fgnZ = s.foreign_buy_sell != null ? Math.round(s.foreign_buy_sell / 1000) : null;
+      const tstZ = s.trust_buy_sell   != null ? Math.round(s.trust_buy_sell   / 1000) : null;
       setEl(`${id}-fgn`,
         fgnZ != null ? `${sign(fgnZ)}${fgnZ.toLocaleString()}` : '—',
         `px-4 py-3 text-right font-mono text-xs ${clr(fgnZ)}`

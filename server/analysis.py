@@ -172,12 +172,12 @@ def realtime_signal(
         by_date[d][r["name"]] = r.get("buy_sell", 0)
     last_inst_date = max(by_date.keys()) if by_date else None
     inst_today = by_date.get(last_inst_date, {}) if last_inst_date else {}
-    foreign_net_ke = inst_today.get("Foreign_Investor", 0)   # 千元
-    trust_net_ke = inst_today.get("Investment_Trust", 0)     # 千元
+    foreign_net_sh = inst_today.get("Foreign_Investor", 0)   # 股（shares）
+    trust_net_sh = inst_today.get("Investment_Trust", 0)     # 股（shares）
     dealer_net = inst_today.get("Dealer_self", 0) + inst_today.get("Dealer_Hedging", 0)
-    # 千元 ÷ 收盤價 = 張（估算，與明細表公式一致）
-    foreign_net = int(foreign_net_ke / latest_price) if latest_price else 0
-    trust_net   = int(trust_net_ke   / latest_price) if latest_price else 0
+    # 股 ÷ 1000 = 張（FinMind buy/sell 欄位單位為股）
+    foreign_net = int(foreign_net_sh / 1000)
+    trust_net   = int(trust_net_sh   / 1000)
 
     # --- 融資變化 ---
     margin_chg = 0

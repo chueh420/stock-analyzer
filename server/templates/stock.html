@@ -236,7 +236,7 @@
           <tbody id="marginTbody"></tbody>
         </table>
       </div>
-      <p class="text-xs text-slate-700 mt-2">＊法人張數 = 千元 ÷ 當日收盤（估算）；融資券張數為 TWSE 實際數字</p>
+      <p class="text-xs text-slate-700 mt-2">＊法人張數 = FinMind 股數 ÷ 1000；融資券張數為 TWSE 實際數字</p>
     </div>
 
     <!-- 三大法人 + 融資融券 -->
@@ -426,7 +426,7 @@ function renderKlineVol(data) {
   });
   vol.setData(data.price.map(r => ({
     time: r.date,
-    value: r.Trading_Volume ?? 0,
+    value: Math.round((r.Trading_Volume ?? 0) / 1000),
     color: r.close >= r.open ? '#ef444480' : '#22c55e80',
   })));
   vChart.timeScale().fitContent();
@@ -496,17 +496,12 @@ function switchTab(tab) {
 }
 
 function renderHoldings(data) {
-  const priceLookup = {};
-  for (const r of data.price) priceLookup[r.date] = r.close;
-  const latestPrice = data.price.at(-1)?.close || 1;
-
-  // ── 三大法人：按日期整理，千元 → 張 ──
+  // ── 三大法人：按日期整理，股 ÷ 1000 = 張 ──
   const byDate = {};
   for (const r of data.institutional) {
-    const p = priceLookup[r.date] || latestPrice;
     if (!byDate[r.date]) byDate[r.date] = { f: {buy:0,sell:0}, t: {buy:0,sell:0}, d: {buy:0,sell:0} };
-    const buyZ  = (r.buy  || 0) / p;
-    const sellZ = (r.sell || 0) / p;
+    const buyZ  = (r.buy  || 0) / 1000;
+    const sellZ = (r.sell || 0) / 1000;
     if      (r.name === 'Foreign_Investor')                           { byDate[r.date].f.buy += buyZ; byDate[r.date].f.sell += sellZ; }
     else if (r.name === 'Investment_Trust')                           { byDate[r.date].t.buy += buyZ; byDate[r.date].t.sell += sellZ; }
     else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging') { byDate[r.date].d.buy += buyZ; byDate[r.date].d.sell += sellZ; }
@@ -584,15 +579,10 @@ function renderRSI(data) {
 }
 
 function renderInstitutional(data) {
-  const priceLookup = {};
-  for (const r of data.price) priceLookup[r.date] = r.close;
-  const latestPrice = data.price.at(-1)?.close || 1;
-
   const dm = {};
   for (const r of data.institutional) {
     if (!dm[r.date]) dm[r.date] = { f: 0, t: 0, d: 0 };
-    const p = priceLookup[r.date] || latestPrice;
-    const shares = r.buy_sell / p;   // 千元 / 元 ≈ 張
+    const shares = r.buy_sell / 1000;   // 股 → 張
     if (r.name === 'Foreign_Investor') dm[r.date].f += shares;
     else if (r.name === 'Investment_Trust') dm[r.date].t += shares;
     else if (r.name === 'Dealer_self' || r.name === 'Dealer_Hedging') dm[r.date].d += shares;
