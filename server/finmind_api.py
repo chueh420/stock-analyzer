@@ -172,3 +172,37 @@ async def get_fugle_quote(stock_id: str) -> dict:
             }
     except Exception:
         return {}
+
+
+async def get_fugle_trades(stock_id: str, limit: int = 100) -> list:
+    """Fugle 當日即時成交明細（最近 N 筆）"""
+    if not FUGLE_TOKEN:
+        return []
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/trades/{stock_id}"
+    headers = {"Authorization": f"Bearer {FUGLE_TOKEN}"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=headers)
+            if r.status_code != 200:
+                return []
+            body = r.json()
+            trades = body if isinstance(body, list) else body.get("data", body.get("trades", []))
+            result = []
+            prev_price = None
+            for t in trades:
+                price = t.get("price") or t.get("close")
+                vol   = t.get("volume") or t.get("size") or 0
+                at    = t.get("at") or t.get("time") or ""
+                bid   = t.get("bid")
+                ask   = t.get("ask")
+                if bid and ask:
+                    side = "買" if price >= ask else ("賣" if price <= bid else "中性")
+                elif prev_price is not None:
+                    side = "買" if price > prev_price else ("賣" if price < prev_price else "中性")
+                else:
+                    side = "—"
+                result.append({"at": at, "price": price, "volume": vol, "side": side})
+                prev_price = price
+            return result[-limit:]
+    except Exception:
+        return []

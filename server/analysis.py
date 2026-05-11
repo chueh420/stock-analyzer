@@ -475,7 +475,11 @@ def analyze_live(quote: dict, yf_data: dict, yf_quote: dict = {}, fugle_quote: d
 
         cur = result["current"]
         if vwap and cur:
-            result["above_vwap"] = cur > vwap
+            if cur > vwap:
+                result["above_vwap"] = True
+            elif cur < vwap:
+                result["above_vwap"] = False
+            # cur == vwap（如漲停開盤鎖板）→ 不判斷，避免誤觸弱勢信號
 
         # 每分鐘均量（排除最後一筆，因為可能尚未結束）
         vols = [b["v"] for b in bars]
@@ -501,6 +505,21 @@ def analyze_live(quote: dict, yf_data: dict, yf_quote: dict = {}, fugle_quote: d
     big = 0
     retail = 0
     sigs = []
+
+    # 漲停/跌停 優先偵測（台股一般 ±10%，先判斷以免被其他弱信號蓋掉）
+    _cur_pre = result.get("current")
+    _yest_pre = result.get("yesterday")
+    _limit_flag = None
+    if _cur_pre and _yest_pre and _yest_pre > 0:
+        _chg_pct = (_cur_pre - _yest_pre) / _yest_pre * 100
+        if _chg_pct >= 9.5:
+            _limit_flag = "up"
+            big += 6
+            sigs.append(f"漲停板（+{_chg_pct:.1f}%），強力鎖板買盤")
+        elif _chg_pct <= -9.5:
+            _limit_flag = "down"
+            retail += 6
+            sigs.append(f"跌停板（{_chg_pct:.1f}%），強力鎖板賣壓")
 
     ratio = result.get("bid_ask_ratio")
     if ratio:

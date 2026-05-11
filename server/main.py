@@ -6,8 +6,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
 from analysis import analyze_live, calc_ma, calc_macd, calc_rsi, chip_score, is_market_open, realtime_signal
-from finmind_api import (get_all_stocks, get_fugle_quote, get_institutional,
-                         get_margin, get_price, get_stock_info, get_stock_name,
+from finmind_api import (get_all_stocks, get_fugle_quote, get_fugle_trades,
+                         get_institutional, get_margin, get_price,
+                         get_stock_info, get_stock_name,
                          get_twse_quote, get_yahoo_intraday, get_yahoo_quote)
 
 app = FastAPI()
@@ -222,6 +223,12 @@ async def api_live(stock_id: str):
         get_fugle_quote(stock_id),
     )
     return analyze_live(quote, yf, fugle_quote=fugle)
+
+
+@app.get("/api/trades/{stock_id}")
+async def api_trades(stock_id: str):
+    """Fugle 即時成交明細，最近 100 筆"""
+    return await get_fugle_trades(stock_id, 100)
 
 
 @app.post("/api/watchlist/add")

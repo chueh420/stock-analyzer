@@ -112,6 +112,27 @@
     </div>
   </div>
 
+  <!-- 即時成交明細卡 -->
+  <div id="tradesCard" class="hidden mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-sm font-semibold text-slate-200">即時成交明細</span>
+      <span class="text-xs text-slate-500">最近 <span id="tradesCount">0</span> 筆</span>
+    </div>
+    <div class="overflow-y-auto" style="max-height:280px">
+      <table class="w-full text-xs">
+        <thead class="sticky top-0 bg-slate-800 text-slate-500">
+          <tr>
+            <th class="text-left py-1 pr-2">時間</th>
+            <th class="text-right pr-2">成交價</th>
+            <th class="text-right pr-2">量(張)</th>
+            <th class="text-center">方向</th>
+          </tr>
+        </thead>
+        <tbody id="tradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 即時主力判斷卡 -->
   <div id="realtimeCard" class="hidden mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
     <div class="grid md:grid-cols-2 gap-4">
@@ -698,6 +719,39 @@ async function fetchLive() {
   }
 }
 
+let _tradesTimer = null;
+async function fetchTrades() {
+  try {
+    const r = await fetch(`/api/trades/${STOCK}`);
+    if (!r.ok) return;
+    const trades = await r.json();
+    renderTrades(trades);
+  } catch (e) {
+    console.error('fetchTrades:', e);
+  }
+}
+
+function renderTrades(trades) {
+  const card = document.getElementById('tradesCard');
+  const tbody = document.getElementById('tradesBody');
+  const countEl = document.getElementById('tradesCount');
+  if (!trades || !trades.length) return;
+  card.classList.remove('hidden');
+  countEl.textContent = trades.length;
+  const rows = [...trades].reverse().map(t => {
+    const timeStr = t.at ? t.at.replace(/T/, ' ').replace(/\+.*$/, '').slice(5, 16) : '—';
+    const sideColor = t.side === '買' ? 'text-red-400' : (t.side === '賣' ? 'text-green-400' : 'text-slate-500');
+    return `<tr class="border-t border-slate-700/50 hover:bg-slate-700/30">
+      <td class="py-0.5 pr-2 text-slate-400 font-mono">${timeStr}</td>
+      <td class="text-right pr-2 font-mono text-slate-200">${t.price ?? '—'}</td>
+      <td class="text-right pr-2 font-mono text-slate-300">${t.volume ?? '—'}</td>
+      <td class="text-center font-bold ${sideColor}">${t.side ?? '—'}</td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = rows;
+  if (!_tradesTimer) _tradesTimer = setInterval(fetchTrades, 10000);
+}
+
 function _setLiveError() {
   const mkt = document.getElementById('mktStatus');
   mkt.textContent = '○ 休市';
@@ -868,6 +922,7 @@ function _renderBidAsk(d) {
 
 load();
 fetchLive();
+fetchTrades();
 </script>
 </body>
 </html>
