@@ -67,6 +67,7 @@ async def api_stock(stock_id: str):
         get_margin(stock_id, 60),
         get_stock_name(stock_id),
     )
+    prices = [r for r in prices if r.get("close")]  # 過濾今日尚未收盤的不完整資料
     if not prices:
         raise HTTPException(404, "查無股票資料，請確認代碼是否正確")
 
@@ -106,6 +107,7 @@ async def api_scan():
                 get_margin(sid, 20),
                 get_stock_name(sid),
             )
+            prices = [r for r in prices if r.get("close")]
             if not prices:
                 return {"stock_id": sid, "stock_name": sid, "error": "查無資料"}
 
