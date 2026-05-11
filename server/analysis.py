@@ -427,6 +427,20 @@ def analyze_live(quote: dict, yf_data: dict) -> dict:
         vwap = round(tp_sum / vol_sum, 2) if vol_sum > 0 else None
         result["vwap"] = vwap
 
+        # TWSE 無資料時（Railway 海外 IP 被擋），改用 Yahoo Finance 補現價/開高低量
+        if result["current"] is None:
+            try:
+                meta = yf_data.get("chart", {}).get("result", [{}])[0].get("meta", {})
+                result["current"]   = meta.get("regularMarketPrice")
+                result["yesterday"] = meta.get("previousClose") or meta.get("chartPreviousClose")
+                result["open"]      = meta.get("regularMarketOpen") or bars[0]["o"]
+                result["high"]      = round(max(b["h"] for b in bars if b.get("h")), 2)
+                result["low"]       = round(min(b["l"] for b in bars if b.get("l")), 2)
+                result["volume"]    = sum(b["v"] for b in bars)
+                result["time"]      = ""   # Yahoo 不提供 tick 時間
+            except Exception:
+                pass
+
         cur = result["current"]
         if vwap and cur:
             result["above_vwap"] = cur > vwap
