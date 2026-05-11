@@ -733,6 +733,17 @@ function renderLive(d) {
   if (cur != null) {
     priceEl.textContent = cur.toFixed(2);
     priceEl.style.color = chg >= 0 ? '#ef4444' : '#22c55e';
+    // 同步更新頁首即時價格（原本顯示 FinMind T+1 昨收，盤中需覆蓋）
+    const hdrPrice = document.getElementById('price');
+    const hdrChange = document.getElementById('change');
+    const hdrDate = document.getElementById('date');
+    if (hdrPrice) { hdrPrice.textContent = cur.toFixed(2); hdrPrice.style.color = chg >= 0 ? '#ef4444' : '#22c55e'; }
+    if (hdrChange && chg != null) {
+      const hs = chg > 0 ? '+' : '';
+      hdrChange.textContent = `${hs}${chg.toFixed(2)} (${hs}${pct.toFixed(2)}%)`;
+      hdrChange.style.color = chg >= 0 ? '#ef4444' : '#22c55e';
+    }
+    if (hdrDate) hdrDate.textContent = '即時';
   }
   if (chg != null) {
     const s = chg > 0 ? '+' : '';

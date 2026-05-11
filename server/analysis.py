@@ -345,7 +345,7 @@ def _parse_twse_levels(raw: str) -> list[float]:
     return [float(x) for x in raw.split("_") if x.strip() and x.strip() != "-"]
 
 
-def analyze_live(quote: dict, yf_data: dict) -> dict:
+def analyze_live(quote: dict, yf_data: dict, yf_quote: dict = {}) -> dict:
     """即時大戶/散戶 + 偏多/偏空，結合 TWSE 掛單與 Yahoo 分鐘K"""
     result: dict = {
         "market_open": is_market_open(),
@@ -427,17 +427,41 @@ def analyze_live(quote: dict, yf_data: dict) -> dict:
         vwap = round(tp_sum / vol_sum, 2) if vol_sum > 0 else None
         result["vwap"] = vwap
 
-        # TWSE 無資料時（Railway 海外 IP 被擋），改用 Yahoo Finance 補現價/開高低量
+        # TWSE 無資料時（Railway 海外 IP 被擋），用 Yahoo Finance v7 即時報價補全
         if result["current"] is None:
             try:
-                meta = yf_data.get("chart", {}).get("result", [{}])[0].get("meta", {})
-                result["current"]   = meta.get("regularMarketPrice")
-                result["yesterday"] = meta.get("previousClose") or meta.get("chartPreviousClose")
-                result["open"]      = meta.get("regularMarketOpen") or bars[0]["o"]
-                result["high"]      = round(max(b["h"] for b in bars if b.get("h")), 2)
-                result["low"]       = round(min(b["l"] for b in bars if b.get("l")), 2)
-                result["volume"]    = sum(b["v"] for b in bars)
-                result["time"]      = ""   # Yahoo 不提供 tick 時間
+                if yf_quote:
+                    result["current"]   = yf_quote.get("regularMarketPrice")
+                    result["yesterday"] = yf_quote.get("regularMarketPreviousClose")
+                    result["open"]      = yf_quote.get("regularMarketOpen")
+                    result["high"]      = yf_quote.get("regularMarketDayHigh")
+                    result["low"]       = yf_quote.get("regularMarketDayLow")
+                    raw_vol = yf_quote.get("regularMarketVolume", 0)
+                    result["volume"]    = int(raw_vol // 1000) if raw_vol else None  # 股 → 張
+                else:
+                    meta = yf_data.get("chart", {}).get("result", [{}])[0].get("meta", {})
+                    result["current"]   = meta.get("regularMarketPrice")
+                    result["yesterday"] = meta.get("previousClose") or meta.get("chartPreviousClose")
+                    result["open"]      = meta.get("regularMarketOpen") or bars[0]["o"]
+                    result["high"]      = round(max(b["h"] for b in bars if b.get("h")), 2)
+                    result["low"]       = round(min(b["l"] for b in bars if b.get("l")), 2)
+                    result["volume"]    = sum(b["v"] for b in bars)
+            except Exception:
+                pass
+
+        # Yahoo v7 委買委賣（TWSE 被擋時的替代，只有 1 檔）
+        if not result["bid_prices"] and yf_quote:
+            try:
+                bid = yf_quote.get("bid")
+                ask = yf_quote.get("ask")
+                bid_sz = yf_quote.get("bidSize", 0)  # Yahoo 單位為張
+                ask_sz = yf_quote.get("askSize", 0)
+                if bid and ask and bid > 0 and ask > 0:
+                    result["bid_prices"] = [round(bid, 2)]
+                    result["bid_vols"]   = [int(bid_sz)]
+                    result["ask_prices"] = [round(ask, 2)]
+                    result["ask_vols"]   = [int(ask_sz)]
+                    result["bid_ask_ratio"] = round(bid_sz / ask_sz, 2) if ask_sz else 1.0
             except Exception:
                 pass
 

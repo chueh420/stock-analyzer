@@ -100,6 +100,21 @@ async def get_twse_quote(stock_id: str, stock_type: str = "twse") -> dict:
     return {}
 
 
+async def get_yahoo_quote(stock_id: str) -> dict:
+    """Yahoo Finance v7 即時報價：現價、昨收、開高低、量、1檔委買委賣（可跨國存取）"""
+    url = "https://query1.finance.yahoo.com/v7/finance/quote"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, params={"symbols": f"{stock_id}.TW"}, headers=headers)
+            body = r.json()
+            res = body.get("quoteResponse", {}).get("result", [])
+            return res[0] if res else {}
+    except Exception:
+        pass
+    return {}
+
+
 async def get_yahoo_intraday(stock_id: str) -> dict:
     """Yahoo Finance 1分K（計算VWAP、大單偵測）"""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{stock_id}.TW"
