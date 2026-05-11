@@ -172,9 +172,12 @@ def realtime_signal(
         by_date[d][r["name"]] = r.get("buy_sell", 0)
     last_inst_date = max(by_date.keys()) if by_date else None
     inst_today = by_date.get(last_inst_date, {}) if last_inst_date else {}
-    foreign_net = inst_today.get("Foreign_Investor", 0)
-    trust_net = inst_today.get("Investment_Trust", 0)
+    foreign_net_ke = inst_today.get("Foreign_Investor", 0)   # 千元
+    trust_net_ke = inst_today.get("Investment_Trust", 0)     # 千元
     dealer_net = inst_today.get("Dealer_self", 0) + inst_today.get("Dealer_Hedging", 0)
+    # 千元 ÷ 收盤價 = 張（估算，與明細表公式一致）
+    foreign_net = int(foreign_net_ke / latest_price) if latest_price else 0
+    trust_net   = int(trust_net_ke   / latest_price) if latest_price else 0
 
     # --- 融資變化 ---
     margin_chg = 0
@@ -191,24 +194,24 @@ def realtime_signal(
 
     if foreign_net > 0:
         big += 3
-        p_sigs.append(f"外資買超 {foreign_net / 1000:+.0f}K 股")
+        p_sigs.append(f"外資買超 {foreign_net:,} 張")
     elif foreign_net < 0:
         retail += 1
-        p_sigs.append(f"外資賣超 {foreign_net / 1000:.0f}K 股")
+        p_sigs.append(f"外資賣超 {abs(foreign_net):,} 張")
 
     if trust_net > 0:
         big += 2
-        p_sigs.append(f"投信買超 {trust_net / 1000:+.0f}K 股")
+        p_sigs.append(f"投信買超 {trust_net:,} 張")
     elif trust_net < 0:
         retail += 1
-        p_sigs.append(f"投信賣超 {trust_net / 1000:.0f}K 股")
+        p_sigs.append(f"投信賣超 {abs(trust_net):,} 張")
 
     if margin_chg < 0:
         big += 1
-        p_sigs.append(f"融資減少 {abs(margin_chg) // 1000} 張（散戶退場）")
+        p_sigs.append(f"融資減少 {abs(margin_chg):,} 張（散戶退場）")
     elif margin_chg > 0:
         retail += 2
-        p_sigs.append(f"融資增加 {margin_chg // 1000} 張（散戶追高）")
+        p_sigs.append(f"融資增加 {margin_chg:,} 張（散戶追高）")
 
     if vol_ratio >= 1.5:
         if price_change > 0:

@@ -362,11 +362,11 @@ function renderRealtime(rt, name) {
   const s = v => v > 0 ? '+' : '';
   document.getElementById('rtVolRatio').textContent = rt.vol_ratio?.toFixed(2) ?? '—';
   document.getElementById('rtForeign').textContent =
-    rt.foreign_net != null ? `${s(rt.foreign_net)}${Math.round(rt.foreign_net / 1000).toLocaleString()}K` : '—';
+    rt.foreign_net != null ? `${s(rt.foreign_net)}${Math.abs(rt.foreign_net).toLocaleString()}張` : '—';
   document.getElementById('rtTrust').textContent =
-    rt.trust_net != null ? `${s(rt.trust_net)}${Math.round(rt.trust_net / 1000).toLocaleString()}K` : '—';
+    rt.trust_net != null ? `${s(rt.trust_net)}${Math.abs(rt.trust_net).toLocaleString()}張` : '—';
   document.getElementById('rtMargin').textContent =
-    rt.margin_change != null ? `${s(rt.margin_change)}${Math.round(rt.margin_change / 1000).toLocaleString()}張` : '—';
+    rt.margin_change != null ? `${s(rt.margin_change)}${Math.abs(rt.margin_change).toLocaleString()}張` : '—';
 }
 
 function renderKlineVol(data) {
