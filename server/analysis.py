@@ -345,7 +345,7 @@ def _parse_twse_levels(raw: str) -> list[float]:
     return [float(x) for x in raw.split("_") if x.strip() and x.strip() != "-"]
 
 
-def analyze_live(quote: dict, yf_data: dict, yf_quote: dict = {}) -> dict:
+def analyze_live(quote: dict, yf_data: dict, yf_quote: dict = {}, fugle_quote: dict = {}) -> dict:
     """即時大戶/散戶 + 偏多/偏空，結合 TWSE 掛單與 Yahoo 分鐘K"""
     result: dict = {
         "market_open": is_market_open(),
@@ -443,19 +443,33 @@ def analyze_live(quote: dict, yf_data: dict, yf_quote: dict = {}) -> dict:
             except Exception:
                 pass
 
-        # Yahoo v7 委買委賣（TWSE 被擋時的替代，只有 1 檔）
-        if not result["bid_prices"] and yf_quote:
+        # Fugle 行情補全（Yahoo v8 也無資料時的最後保障）
+        if result["current"] is None and fugle_quote:
             try:
-                bid = yf_quote.get("bid")
-                ask = yf_quote.get("ask")
-                bid_sz = yf_quote.get("bidSize", 0)  # Yahoo 單位為張
-                ask_sz = yf_quote.get("askSize", 0)
-                if bid and ask and bid > 0 and ask > 0:
-                    result["bid_prices"] = [round(bid, 2)]
-                    result["bid_vols"]   = [int(bid_sz)]
-                    result["ask_prices"] = [round(ask, 2)]
-                    result["ask_vols"]   = [int(ask_sz)]
-                    result["bid_ask_ratio"] = round(bid_sz / ask_sz, 2) if ask_sz else 1.0
+                result["current"]   = fugle_quote.get("current")
+                result["yesterday"] = fugle_quote.get("yesterday")
+                result["open"]      = fugle_quote.get("open")
+                result["high"]      = fugle_quote.get("high")
+                result["low"]       = fugle_quote.get("low")
+                result["volume"]    = fugle_quote.get("volume")
+            except Exception:
+                pass
+
+        # Fugle 委買委賣5檔（TWSE 被擋時的替代，5檔完整資料）
+        if not result["bid_prices"] and fugle_quote:
+            try:
+                bp = fugle_quote.get("bid_prices", [])
+                bv = fugle_quote.get("bid_vols", [])
+                ap = fugle_quote.get("ask_prices", [])
+                av = fugle_quote.get("ask_vols", [])
+                if bp and ap:
+                    result["bid_prices"] = bp
+                    result["bid_vols"]   = bv
+                    result["ask_prices"] = ap
+                    result["ask_vols"]   = av
+                    total_bid = sum(bv)
+                    total_ask = sum(av)
+                    result["bid_ask_ratio"] = round(total_bid / total_ask, 2) if total_ask > 0 else 1.0
             except Exception:
                 pass
 

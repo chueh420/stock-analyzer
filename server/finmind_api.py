@@ -5,6 +5,7 @@ import httpx
 
 BASE = "https://api.finmindtrade.com/api/v4/data"
 TOKEN = os.getenv("FINMIND_TOKEN", "")
+FUGLE_TOKEN = os.getenv("FUGLE_TOKEN", "")
 _info_cache: dict[str, dict] = {}  # {name, type}
 _all_stocks_cache: list[dict] = []  # [{stock_id, stock_name, type}]
 
@@ -141,3 +142,33 @@ async def get_institutional(stock_id: str, days: int = 60) -> list:
 
 async def get_margin(stock_id: str, days: int = 60) -> list:
     return await _fetch("TaiwanStockMarginPurchaseShortSale", stock_id, days)
+
+
+async def get_fugle_quote(stock_id: str) -> dict:
+    """Fugle MarketData v1.0 即時報價含委買委賣5檔（需設定 FUGLE_TOKEN 環境變數）"""
+    if not FUGLE_TOKEN:
+        return {}
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{stock_id}"
+    headers = {"Authorization": f"Bearer {FUGLE_TOKEN}"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=headers)
+            if r.status_code != 200:
+                return {}
+            body = r.json()
+            bids = body.get("bids", body.get("bidOrders", []))
+            asks = body.get("asks", body.get("askOrders", []))
+            return {
+                "current":   body.get("close"),
+                "yesterday": body.get("previousClose"),
+                "open":      body.get("open"),
+                "high":      body.get("high"),
+                "low":       body.get("low"),
+                "volume":    body.get("volume"),  # Fugle 已是張
+                "bid_prices": [b["price"] for b in bids],
+                "bid_vols":   [b.get("size", b.get("unit", 0)) for b in bids],
+                "ask_prices": [a["price"] for a in asks],
+                "ask_vols":   [a.get("size", a.get("unit", 0)) for a in asks],
+            }
+    except Exception:
+        return {}

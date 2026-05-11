@@ -6,8 +6,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
 from analysis import analyze_live, calc_ma, calc_macd, calc_rsi, chip_score, is_market_open, realtime_signal
-from finmind_api import (get_all_stocks, get_institutional, get_margin,
-                         get_price, get_stock_info, get_stock_name,
+from finmind_api import (get_all_stocks, get_fugle_quote, get_institutional,
+                         get_margin, get_price, get_stock_info, get_stock_name,
                          get_twse_quote, get_yahoo_intraday, get_yahoo_quote)
 
 app = FastAPI()
@@ -214,14 +214,14 @@ async def api_bigorder():
 
 @app.get("/api/live/{stock_id}")
 async def api_live(stock_id: str):
-    """即時行情：TWSE掛單 + Yahoo分鐘K + Yahoo v7報價，每5秒可呼叫"""
+    """即時行情：TWSE掛單 + Yahoo分鐘K + Fugle委買委賣5檔，每5秒可呼叫"""
     info = await get_stock_info(stock_id)
-    quote, yf, yf_q = await asyncio.gather(
+    quote, yf, fugle = await asyncio.gather(
         get_twse_quote(stock_id, info.get("type", "twse")),
         get_yahoo_intraday(stock_id),
-        get_yahoo_quote(stock_id),
+        get_fugle_quote(stock_id),
     )
-    return analyze_live(quote, yf, yf_q)
+    return analyze_live(quote, yf, fugle_quote=fugle)
 
 
 @app.post("/api/watchlist/add")
