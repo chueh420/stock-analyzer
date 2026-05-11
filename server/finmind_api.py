@@ -93,7 +93,7 @@ async def get_twse_quote(stock_id: str, stock_type: str = "twse") -> dict:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(url, headers=headers)
             body = r.json()
-            if body.get("rtmessage") == "OK" and body.get("msgArray"):
+            if body.get("rtcode") == "0000" and body.get("msgArray"):
                 return body["msgArray"][0]
     except Exception:
         pass
