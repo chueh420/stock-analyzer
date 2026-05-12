@@ -78,9 +78,8 @@
         <table class="w-full text-xs mb-1">
           <tbody id="askTable"></tbody>
         </table>
-        <div id="bidAskEmpty" class="hidden text-xs text-slate-600 text-center py-3">
-          委買委賣資料不可用<br>
-          <span class="text-slate-700">（TWSE 即時 API 僅限台灣 IP，券商 APP 可查）</span>
+        <div id="bidAskEmpty" class="hidden text-xs text-slate-500 text-center py-4">
+          <div id="bidAskEmptyMsg">盤後休市｜價位表僅盤中 09:00–13:30 提供</div>
         </div>
         <div class="h-px bg-slate-600 my-1"></div>
         <table class="w-full text-xs mt-1">
@@ -113,10 +112,10 @@
   </div>
 
   <!-- 即時成交明細卡 -->
-  <div id="tradesCard" class="hidden mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
+  <div id="tradesCard" class="mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
     <div class="flex items-center justify-between mb-2">
       <span class="text-sm font-semibold text-slate-200">即時成交明細</span>
-      <span class="text-xs text-slate-500">最近 <span id="tradesCount">0</span> 筆</span>
+      <span class="text-xs text-slate-500">最近 <span id="tradesCount">—</span> 筆</span>
     </div>
     <div class="overflow-y-auto" style="max-height:280px">
       <table class="w-full text-xs">
@@ -128,7 +127,9 @@
             <th class="text-center">方向</th>
           </tr>
         </thead>
-        <tbody id="tradesBody"></tbody>
+        <tbody id="tradesBody">
+          <tr><td colspan="4" class="text-center py-6 text-xs text-slate-600">載入中…</td></tr>
+        </tbody>
       </table>
     </div>
   </div>
@@ -289,6 +290,17 @@
 
 <script>
 const STOCK = '{{ stock_id }}';
+
+function isMarketOpen() {
+  try {
+    const tst = new Date(new Date().toLocaleString('en-US', {timeZone: 'Asia/Taipei'}));
+    const day = tst.getDay();
+    if (day === 0 || day === 6) return false;
+    const mins = tst.getHours() * 60 + tst.getMinutes();
+    return mins >= 540 && mins <= 810; // 09:00–13:30
+  } catch(e) { return false; }
+}
+
 Chart.defaults.color = '#94a3b8';
 Chart.defaults.borderColor = '#334155';
 
@@ -735,8 +747,13 @@ function renderTrades(trades) {
   const card = document.getElementById('tradesCard');
   const tbody = document.getElementById('tradesBody');
   const countEl = document.getElementById('tradesCount');
-  if (!trades || !trades.length) return;
-  card.classList.remove('hidden');
+  if (!trades || !trades.length) {
+    countEl.textContent = '0';
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-xs text-slate-600">
+      ${isMarketOpen() ? '等待成交資料…' : '盤後休市｜成交明細僅盤中 09:00–13:30 提供'}
+    </td></tr>`;
+    return;
+  }
   countEl.textContent = trades.length;
   const rows = [...trades].reverse().map(t => {
     const timeStr = t.at ? t.at.replace(/T/, ' ').replace(/\+.*$/, '').slice(5, 16) : '—';
@@ -879,7 +896,13 @@ function _renderBidAsk(d) {
   // 沒有委買委賣資料時顯示說明
   const emptyEl = document.getElementById('bidAskEmpty');
   if (!ap.length && !bp.length) {
-    if (emptyEl) emptyEl.classList.remove('hidden');
+    if (emptyEl) {
+      emptyEl.classList.remove('hidden');
+      const msg = document.getElementById('bidAskEmptyMsg');
+      if (msg) msg.textContent = isMarketOpen()
+        ? '價位表資料無法取得（Fugle API 確認中）'
+        : '盤後休市｜委買委賣價位表僅盤中 09:00–13:30 提供';
+    }
     document.getElementById('askTable').innerHTML = '';
     document.getElementById('bidTable').innerHTML = '';
     return;
