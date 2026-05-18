@@ -254,8 +254,8 @@ async def get_all_stocks() -> list[dict]:
             async with httpx.AsyncClient(timeout=20) as client:
                 r = await client.get(url, headers=headers)
                 for row in r.json():
-                    sid = row.get("有價證券代號", row.get("股票代號", "")).strip()
-                    name = row.get("有價證券名稱", row.get("公司簡稱", "")).strip()
+                    sid = (row.get("有價證券代號") or row.get("公司代號") or row.get("股票代號") or "").strip()
+                    name = (row.get("有價證券名稱") or row.get("公司名稱") or row.get("公司簡稱") or "").strip()
                     if sid and name:
                         results.append({"stock_id": sid, "stock_name": name, "type": stype})
         except Exception:
