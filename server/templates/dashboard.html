@@ -352,10 +352,17 @@ function renderBigOrder(data) {
 
   list.innerHTML = alerts.map(a => {
     const c = _bigColorMap[a.dir_color] || _bigColorMap.yellow;
-    const arrow = a.dir_color === 'red' ? '↑' : a.dir_color === 'green' ? '↓' : '↔';
-    const recentTag = a.is_recent
-      ? '<span class="text-xs bg-orange-900/50 text-orange-300 border border-orange-700 rounded px-1.5 py-0.5">剛發生</span>'
-      : '<span class="text-xs text-slate-600">今日出現</span>';
+    const arrow = a.dir_color === 'red' ? '↑' : a.dir_color === 'green' ? '↓' : '—';
+    const chgColor = a.chg_pct > 0 ? 'text-red-400' : a.chg_pct < 0 ? 'text-green-400' : 'text-slate-400';
+    const chgStr = a.chg_pct != null ? `${a.chg_pct > 0 ? '+' : ''}${a.chg_pct.toFixed(2)}%` : '—';
+    const spikeTag = a.is_recent
+      ? '<span class="text-xs bg-orange-900/50 text-orange-300 border border-orange-700 rounded px-1.5 py-0.5">爆量</span>'
+      : a.has_spike
+        ? '<span class="text-xs text-slate-500">今日大單</span>'
+        : '';
+    const volStr = a.spike_vol > 0
+      ? `<span class="font-mono text-xs text-slate-400 ml-1">${a.spike_vol.toLocaleString()}張 (${a.multiplier}x)</span>`
+      : '';
     return `
       <div class="flex items-center gap-3 px-3 py-2 rounded-lg border ${c.bg} mb-1 cursor-pointer hover:opacity-80 transition"
            onclick="location.href='/stock/${a.stock_id}'">
@@ -363,12 +370,14 @@ function renderBigOrder(data) {
           <div class="font-mono font-bold text-blue-400 text-sm">${a.stock_id}</div>
           <div class="text-xs text-slate-400">${a.stock_name}</div>
         </div>
-        <div class="flex-1 text-sm">
-          <span class="font-mono font-bold ${c.text}">${a.spike_vol.toLocaleString()} 張/分</span>
-          <span class="text-slate-500 text-xs ml-1">（均量 ${a.avg_vol} 張，${a.multiplier}x）</span>
+        <div class="w-20 shrink-0 text-right">
+          <div class="font-mono text-sm text-slate-200">${a.current ?? '—'}</div>
+          <div class="text-xs ${chgColor}">${chgStr}</div>
         </div>
-        <div class="flex items-center gap-2">
-          ${recentTag}
+        <div class="flex-1 flex items-center gap-2">
+          ${spikeTag}${volStr}
+        </div>
+        <div>
           <span class="text-xs px-2 py-0.5 rounded-full ${c.badge}">${arrow} ${a.direction}</span>
         </div>
       </div>`;

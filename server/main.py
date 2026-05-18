@@ -169,10 +169,10 @@ async def api_scan():
 
 @app.get("/api/bigorder")
 async def api_bigorder():
-    """即時大單偵測：掃描自選股，回傳有大單出現的股票"""
+    """即時監控：回傳全部自選股狀態"""
     stocks = load_wl()
 
-    async def check_one(sid: str) -> dict | None:
+    async def check_one(sid: str) -> dict:
         try:
             info = await get_stock_info(sid)
             yf = await get_yahoo_intraday(sid)
@@ -181,41 +181,44 @@ async def api_bigorder():
             avg_v = live.get("avg_min_vol") or 0
             latest_v = live.get("latest_min_vol") or 0
             max_v = live.get("max_min_vol") or 0
-            if not avg_v:
-                return None
 
-            is_recent = latest_v >= avg_v * 3   # 最新這分鐘爆量
-            has_spike = max_v >= avg_v * 5       # 今日曾出現大單
-            if not (is_recent or has_spike):
-                return None
+            is_recent = bool(avg_v and latest_v >= avg_v * 3)
+            has_spike = bool(avg_v and max_v >= avg_v * 5)
+            spike_vol = int(latest_v if is_recent else max_v) if (is_recent or has_spike) else 0
 
-            spike_vol = latest_v if is_recent else max_v
             cur = live.get("current")
             yest = live.get("yesterday")
+            chg_pct = round((cur - yest) / yest * 100, 2) if cur and yest else None
             if cur and yest and cur > yest:
                 direction, dir_color = "積極買進", "red"
             elif cur and yest and cur < yest:
                 direction, dir_color = "出貨賣壓", "green"
             else:
-                direction, dir_color = "量能放大", "yellow"
+                direction, dir_color = "觀望", "yellow"
 
             return {
                 "stock_id": sid,
                 "stock_name": info.get("name", sid),
-                "spike_vol": int(spike_vol),
-                "avg_vol": int(avg_v),
-                "multiplier": round(spike_vol / avg_v, 1) if avg_v else 0,
+                "current": cur,
+                "chg_pct": chg_pct,
+                "spike_vol": spike_vol,
+                "avg_vol": int(avg_v) if avg_v else 0,
+                "multiplier": round(spike_vol / avg_v, 1) if avg_v and spike_vol else 0,
                 "is_recent": is_recent,
+                "has_spike": has_spike,
                 "direction": direction,
                 "dir_color": dir_color,
             }
         except Exception:
-            return None
+            return {"stock_id": sid, "stock_name": sid, "error": True,
+                    "current": None, "chg_pct": None, "spike_vol": 0, "avg_vol": 0,
+                    "multiplier": 0, "is_recent": False, "has_spike": False,
+                    "direction": "—", "dir_color": "gray"}
 
     results = await asyncio.gather(*[check_one(s) for s in stocks])
     return {
         "market_open": is_market_open(),
-        "alerts": [r for r in results if r is not None],
+        "alerts": list(results),
     }
 
 
