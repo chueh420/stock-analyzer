@@ -190,10 +190,11 @@ async def api_bigorder():
                 return None
 
             spike_vol = latest_v if is_recent else max_v
-            last_bar_up = live.get("last_bar_up")
-            if last_bar_up is True:
+            cur = live.get("current")
+            yest = live.get("yesterday")
+            if cur and yest and cur > yest:
                 direction, dir_color = "積極買進", "red"
-            elif last_bar_up is False:
+            elif cur and yest and cur < yest:
                 direction, dir_color = "出貨賣壓", "green"
             else:
                 direction, dir_color = "量能放大", "yellow"
