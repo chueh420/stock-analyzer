@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -8,6 +9,10 @@ TOKEN = os.getenv("FINMIND_TOKEN", "")
 FUGLE_TOKEN = os.getenv("FUGLE_TOKEN", "")
 _info_cache: dict[str, dict] = {}
 _all_stocks_cache: list[dict] = []
+_t86_cache: dict[str, list] = {}
+_margn_cache: dict[str, list] = {}
+_t86_locks: dict[str, asyncio.Lock] = {}
+_margn_locks: dict[str, asyncio.Lock] = {}
 
 
 def _start(days: int) -> str:
@@ -84,7 +89,7 @@ async def get_yahoo_history(stock_id: str, days: int = 120) -> list:
         return []
 
 
-# ── TWSE 法人/融資（月報 API）────────────────────────────────────────────────
+# ── TWSE API 工具函式 ─────────────────────────────────────────────────────────
 
 async def _fetch_twse(url: str, params: dict) -> dict:
     headers = {
@@ -104,93 +109,111 @@ async def _fetch_twse(url: str, params: dict) -> dict:
         return {}
 
 
-async def get_twse_institutional(stock_id: str, months: int = 3) -> list:
-    """TWSE 三大法人月報，轉換為 FinMind 格式"""
-    rows = []
-    now = datetime.now()
-    seen_dates: set[str] = set()
-    for i in range(months):
-        dt = (now.replace(day=1) - timedelta(days=i * 28)).replace(day=1)
+def _recent_weekdays(n: int) -> list:
+    """生成最近 n 個工作日（週一到週五，格式 YYYYMMDD）"""
+    dates = []
+    d = datetime.now()
+    while len(dates) < n:
+        d -= timedelta(days=1)
+        if d.weekday() < 5:
+            dates.append(d.strftime("%Y%m%d"))
+    return dates
+
+
+async def _get_t86(date_str: str) -> list:
+    """抓取 T86 當日全市場三大法人，帶快取避免重複請求"""
+    if date_str in _t86_cache:
+        return _t86_cache[date_str]
+    if date_str not in _t86_locks:
+        _t86_locks[date_str] = asyncio.Lock()
+    async with _t86_locks[date_str]:
+        if date_str in _t86_cache:
+            return _t86_cache[date_str]
         body = await _fetch_twse(
-            "https://www.twse.com.tw/fund/TWT38U",
-            {"response": "json", "date": dt.strftime("%Y%m01"), "stockNo": stock_id},
+            "https://www.twse.com.tw/fund/T86",
+            {"response": "json", "date": date_str, "selectType": "ALLBUT0999"},
         )
         data = body.get("data", [])
-        fields = body.get("fields", [])
-        if not data or not fields:
-            continue
-        # 找欄位索引
-        try:
-            fi_buy   = next(i for i, f in enumerate(fields) if "外陸資買進" in f and "自營" not in f)
-            fi_sell  = next(i for i, f in enumerate(fields) if "外陸資賣出" in f and "自營" not in f)
-            fi_tbuy  = next(i for i, f in enumerate(fields) if "投信買進" in f)
-            fi_tsell = next(i for i, f in enumerate(fields) if "投信賣出" in f)
-            fi_dbuy  = next(i for i, f in enumerate(fields) if "自營商買進股數(自行" in f)
-            fi_dsell = next(i for i, f in enumerate(fields) if "自營商賣出股數(自行" in f)
-            fi_hbuy  = next(i for i, f in enumerate(fields) if "自營商買進股數(避險" in f)
-            fi_hsell = next(i for i, f in enumerate(fields) if "自營商賣出股數(避險" in f)
-        except StopIteration:
-            continue
+        _t86_cache[date_str] = data
+        return data
+
+
+async def _get_margn(date_str: str) -> list:
+    """抓取 MI_MARGN 當日全市場融資融券，帶快取避免重複請求"""
+    if date_str in _margn_cache:
+        return _margn_cache[date_str]
+    if date_str not in _margn_locks:
+        _margn_locks[date_str] = asyncio.Lock()
+    async with _margn_locks[date_str]:
+        if date_str in _margn_cache:
+            return _margn_cache[date_str]
+        body = await _fetch_twse(
+            "https://www.twse.com.tw/exchangeReport/MI_MARGN",
+            {"response": "json", "date": date_str, "selectType": "ALL"},
+        )
+        # 回傳 (data, fields) tuple 存快取，方便欄位解析
+        result = (body.get("data", []), body.get("fields", []))
+        _margn_cache[date_str] = result
+        return result
+
+
+async def get_twse_institutional(stock_id: str, max_days: int = 20) -> list:
+    """TWSE T86 三大法人每日，並行抓取最近 max_days 個工作日"""
+    async def _one(date_str: str) -> list:
+        data = await _get_t86(date_str)
         for row in data:
-            date = _twse_date(row[0])
-            if not date or date in seen_dates:
-                continue
-            seen_dates.add(date)
-            fb = _parse_num(row[fi_buy])
-            fs = _parse_num(row[fi_sell])
-            tb = _parse_num(row[fi_tbuy])
-            ts = _parse_num(row[fi_tsell])
-            db = _parse_num(row[fi_dbuy])
-            ds = _parse_num(row[fi_dsell])
-            hb = _parse_num(row[fi_hbuy])
-            hs = _parse_num(row[fi_hsell])
-            rows += [
-                {"date": date, "name": "Foreign_Investor", "buy": fb, "sell": fs, "buy_sell": fb - fs},
-                {"date": date, "name": "Investment_Trust",  "buy": tb, "sell": ts, "buy_sell": tb - ts},
-                {"date": date, "name": "Dealer_self",       "buy": db, "sell": ds, "buy_sell": db - ds},
-                {"date": date, "name": "Dealer_Hedging",    "buy": hb, "sell": hs, "buy_sell": hb - hs},
-            ]
+            if len(row) > 16 and row[0].strip() == stock_id:
+                dt = datetime.strptime(date_str, "%Y%m%d").strftime("%Y-%m-%d")
+                fb = _parse_num(row[2]);  fs = _parse_num(row[3])
+                tb = _parse_num(row[8]);  ts = _parse_num(row[9])
+                db = _parse_num(row[12]); ds = _parse_num(row[13])
+                hb = _parse_num(row[15]); hs = _parse_num(row[16])
+                return [
+                    {"date": dt, "name": "Foreign_Investor", "buy": fb, "sell": fs, "buy_sell": fb - fs},
+                    {"date": dt, "name": "Investment_Trust",  "buy": tb, "sell": ts, "buy_sell": tb - ts},
+                    {"date": dt, "name": "Dealer_self",       "buy": db, "sell": ds, "buy_sell": db - ds},
+                    {"date": dt, "name": "Dealer_Hedging",    "buy": hb, "sell": hs, "buy_sell": hb - hs},
+                ]
+        return []
+
+    all_results = await asyncio.gather(*[_one(d) for d in _recent_weekdays(max_days)])
+    rows = [r for sub in all_results for r in sub]
     return sorted(rows, key=lambda r: r["date"])
 
 
-async def get_twse_margin(stock_id: str, months: int = 3) -> list:
-    """TWSE 融資融券月報，轉換為 FinMind 格式"""
-    rows = []
-    now = datetime.now()
-    seen_dates: set[str] = set()
-    for i in range(months):
-        dt = (now.replace(day=1) - timedelta(days=i * 28)).replace(day=1)
-        body = await _fetch_twse(
-            "https://www.twse.com.tw/exchangeReport/MARGIN_PURCHASE_SHORT_SALE",
-            {"response": "json", "date": dt.strftime("%Y%m01"), "stockNo": stock_id},
-        )
-        data = body.get("data", [])
-        fields = body.get("fields", [])
+async def get_twse_margin(stock_id: str, max_days: int = 20) -> list:
+    """TWSE MI_MARGN 融資融券每日，並行抓取最近 max_days 個工作日"""
+    async def _one(date_str: str):
+        result = await _get_margn(date_str)
+        data, fields = result if isinstance(result, tuple) else (result, [])
         if not data or not fields:
-            continue
+            return None
         try:
-            fi_mbuy  = next(i for i, f in enumerate(fields) if f == "融資買進")
-            fi_msell = next(i for i, f in enumerate(fields) if f == "融資賣出")
-            fi_mbal  = next(i for i, f in enumerate(fields) if f == "融資餘額")
-            fi_sbuy  = next(i for i, f in enumerate(fields) if f == "融券買進")
-            fi_ssell = next(i for i, f in enumerate(fields) if f == "融券賣出")
-            fi_sbal  = next(i for i, f in enumerate(fields) if f == "融券餘額")
+            fi_mbuy  = next(i for i, f in enumerate(fields) if "融資買進" in f)
+            fi_msell = next(i for i, f in enumerate(fields) if "融資賣出" in f)
+            fi_mbal  = next(i for i, f in enumerate(fields) if "融資餘額" in f)
+            fi_sbuy  = next(i for i, f in enumerate(fields) if "融券買進" in f)
+            fi_ssell = next(i for i, f in enumerate(fields) if "融券賣出" in f)
+            fi_sbal  = next(i for i, f in enumerate(fields) if "融券餘額" in f)
         except StopIteration:
-            continue
+            return None
         for row in data:
-            date = _twse_date(row[0])
-            if not date or date in seen_dates:
+            if not row or row[0].strip() != stock_id:
                 continue
-            seen_dates.add(date)
-            rows.append({
-                "date": date,
+            dt = datetime.strptime(date_str, "%Y%m%d").strftime("%Y-%m-%d")
+            return {
+                "date":                       dt,
                 "MarginPurchaseBuy":          int(_parse_num(row[fi_mbuy])),
                 "MarginPurchaseSell":         int(_parse_num(row[fi_msell])),
                 "MarginPurchaseTodayBalance": int(_parse_num(row[fi_mbal])),
                 "ShortSaleBuy":               int(_parse_num(row[fi_sbuy])),
                 "ShortSaleSell":              int(_parse_num(row[fi_ssell])),
                 "ShortSaleTodayBalance":      int(_parse_num(row[fi_sbal])),
-            })
+            }
+        return None
+
+    all_results = await asyncio.gather(*[_one(d) for d in _recent_weekdays(max_days)])
+    rows = [r for r in all_results if r]
     return sorted(rows, key=lambda r: r["date"])
 
 
@@ -259,8 +282,9 @@ async def get_price(stock_id: str, days: int = 120) -> list:
 
 
 async def get_institutional(stock_id: str, days: int = 60) -> list:
-    months = max(2, (days // 22) + 1)
-    rows = await get_twse_institutional(stock_id, months)
+    # 最多抓 20 個工作日（約 1 個月），避免對 TWSE 發送過多請求
+    fetch_days = min(max(days * 5 // 7, 10), 20)
+    rows = await get_twse_institutional(stock_id, fetch_days)
     if rows:
         cutoff = _start(days)
         return [r for r in rows if r["date"] >= cutoff]
@@ -268,8 +292,8 @@ async def get_institutional(stock_id: str, days: int = 60) -> list:
 
 
 async def get_margin(stock_id: str, days: int = 60) -> list:
-    months = max(2, (days // 22) + 1)
-    rows = await get_twse_margin(stock_id, months)
+    fetch_days = min(max(days * 5 // 7, 10), 20)
+    rows = await get_twse_margin(stock_id, fetch_days)
     if rows:
         cutoff = _start(days)
         return [r for r in rows if r["date"] >= cutoff]
