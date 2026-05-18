@@ -134,6 +134,37 @@
     </div>
   </div>
 
+  <!-- AI 當沖判斷卡 -->
+  <div id="aiCard" class="mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <span class="text-sm font-semibold text-slate-200">AI 當沖判斷</span>
+        <span class="text-xs text-slate-500">claude-haiku · 僅供參考，不構成投資建議</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-500" id="aiTime">—</span>
+        <button onclick="fetchAiJudge()" id="aiRefreshBtn"
+          class="text-xs text-slate-500 hover:text-slate-300">↻ 重新分析</button>
+      </div>
+    </div>
+    <div id="aiLoading" class="text-center py-4 text-xs text-slate-500">AI 分析中…</div>
+    <div id="aiResult" class="hidden">
+      <div class="flex items-center gap-4 mb-3">
+        <div class="text-3xl font-bold" id="aiDirection">—</div>
+        <div>
+          <div class="text-xs text-slate-500 mb-0.5">信心度</div>
+          <div class="text-sm font-semibold" id="aiConfidence">—</div>
+        </div>
+        <div class="ml-auto text-sm text-slate-300 italic" id="aiSummary">—</div>
+      </div>
+      <div id="aiReasons" class="space-y-1 mb-3"></div>
+      <div class="pt-2 border-t border-slate-700 text-xs text-amber-400">
+        ⚠ 風險：<span id="aiRisk">—</span>
+      </div>
+    </div>
+    <div id="aiError" class="hidden text-xs text-red-400 py-2"></div>
+  </div>
+
   <!-- 即時主力判斷卡 -->
   <div id="realtimeCard" class="hidden mb-4 bg-slate-800 border border-slate-700 rounded-xl p-4">
     <div class="grid md:grid-cols-2 gap-4">
@@ -943,9 +974,57 @@ function _renderBidAsk(d) {
     }).join('');
 }
 
+async function fetchAiJudge() {
+  const btn = document.getElementById('aiRefreshBtn');
+  btn.textContent = '分析中…';
+  btn.disabled = true;
+  document.getElementById('aiLoading').classList.remove('hidden');
+  document.getElementById('aiResult').classList.add('hidden');
+  document.getElementById('aiError').classList.add('hidden');
+  try {
+    const r = await fetch(`/api/ai-judge/${STOCK}`);
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('aiError').textContent = d.summary || d.error;
+      document.getElementById('aiError').classList.remove('hidden');
+      document.getElementById('aiLoading').classList.add('hidden');
+      return;
+    }
+    const cmap = colorMap[d.dir_color] || colorMap.gray;
+    const dirEl = document.getElementById('aiDirection');
+    dirEl.textContent = d.direction || '—';
+    dirEl.style.color = cmap.text;
+    document.getElementById('aiCard').style.borderColor = cmap.border;
+
+    const confEl = document.getElementById('aiConfidence');
+    confEl.textContent = d.confidence || '—';
+    confEl.style.color = d.confidence === '高' ? '#ef4444' : d.confidence === '低' ? '#22c55e' : '#f59e0b';
+
+    document.getElementById('aiSummary').textContent = d.summary || '';
+    document.getElementById('aiTime').textContent = d.timestamp || '';
+    document.getElementById('aiRisk').textContent = d.risk || '—';
+
+    const reasonsEl = document.getElementById('aiReasons');
+    reasonsEl.innerHTML = (d.reasons || []).map(r =>
+      `<div class="text-xs text-slate-300 flex items-center gap-1"><span class="text-slate-500">▸</span>${r}</div>`
+    ).join('');
+
+    document.getElementById('aiLoading').classList.add('hidden');
+    document.getElementById('aiResult').classList.remove('hidden');
+  } catch (e) {
+    document.getElementById('aiError').textContent = '連線失敗：' + e.message;
+    document.getElementById('aiError').classList.remove('hidden');
+    document.getElementById('aiLoading').classList.add('hidden');
+  } finally {
+    btn.textContent = '↻ 重新分析';
+    btn.disabled = false;
+  }
+}
+
 load();
 fetchLive();
 fetchTrades();
+fetchAiJudge();
 </script>
 </body>
 </html>

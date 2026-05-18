@@ -1,7 +1,10 @@
 import asyncio
 import json
+import os
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import anthropic
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
@@ -10,6 +13,8 @@ from finmind_api import (get_all_stocks, get_fugle_quote, get_fugle_trades,
                          get_institutional, get_margin, get_price,
                          get_stock_info, get_stock_name,
                          get_twse_quote, get_yahoo_intraday, get_yahoo_quote)
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -229,6 +234,82 @@ async def api_live(stock_id: str):
 async def api_trades(stock_id: str):
     """Fugle 即時成交明細，最近 100 筆"""
     return await get_fugle_trades(stock_id, 100)
+
+
+@app.get("/api/ai-judge/{stock_id}")
+async def api_ai_judge(stock_id: str):
+    """Claude AI 當沖方向判斷：做多 / 做空 / 觀望"""
+    if not ANTHROPIC_API_KEY:
+        return {"error": "ANTHROPIC_API_KEY 未設定", "direction": "—", "dir_color": "gray",
+                "confidence": "—", "summary": "請在 Railway 設定 ANTHROPIC_API_KEY", "reasons": [], "risk": "—"}
+
+    info = await get_stock_info(stock_id)
+    quote, yf, fugle, trades = await asyncio.gather(
+        get_twse_quote(stock_id, info.get("type", "twse")),
+        get_yahoo_intraday(stock_id),
+        get_fugle_quote(stock_id),
+        get_fugle_trades(stock_id, 100),
+    )
+    live = analyze_live(quote, yf, fugle_quote=fugle)
+
+    buy_count = sum(1 for t in trades if t.get("side") == "買")
+    sell_count = sum(1 for t in trades if t.get("side") == "賣")
+    buy_vol = sum(t.get("volume", 0) for t in trades if t.get("side") == "買")
+    sell_vol = sum(t.get("volume", 0) for t in trades if t.get("side") == "賣")
+
+    cur = live.get("current")
+    yest = live.get("yesterday")
+    chg_pct = round((cur - yest) / yest * 100, 2) if cur and yest else None
+    chg_str = f"{'+' if chg_pct and chg_pct > 0 else ''}{chg_pct}%" if chg_pct is not None else "—"
+    above_vwap = live.get("above_vwap")
+    vwap_str = "高於VWAP（強勢）" if above_vwap is True else "低於VWAP（弱勢）" if above_vwap is False else "等於VWAP"
+    vol_trend = live.get("recent_vol_trend") or 1.0
+
+    prompt = f"""你是台股當沖交易分析助手。根據以下即時數據判斷短線方向（分鐘到小時的當沖框架）。
+
+【即時行情】
+股票：{info.get('name', stock_id)}（{stock_id}）
+現價：{cur}，昨收：{yest}，漲跌：{chg_str}
+VWAP：{live.get('vwap')}，現價{vwap_str}
+委買/委賣比：{live.get('bid_ask_ratio')}（>2.0=大量買盤，<0.5=大量賣盤）
+近5分鐘量能趨勢：{vol_trend:.2f}x（>1.5=加速，<0.6=萎縮）
+
+【近{len(trades)}筆成交明細】
+主動買進：{buy_count} 筆，合計 {buy_vol} 張
+主動賣出：{sell_count} 筆，合計 {sell_vol} 張
+買賣量比：{round(buy_vol/sell_vol, 2) if sell_vol > 0 else 'N/A'}
+
+【系統訊號】
+{'; '.join(live.get('signals', [])) or '無'}
+系統初判：{live.get('direction')}，{live.get('big_player')}
+
+請用繁體中文回答，只回傳 JSON，格式如下：
+{{"direction":"做多","confidence":"高","summary":"買盤積極量能加速做多","reasons":["委買委賣比2.3買盤積極","主動買進量佔65%","現價站上VWAP"],"risk":"委賣反壓留意"}}
+
+direction 只能是「做多」「做空」「觀望」其中一個，confidence 只能是「高」「中」「低」。"""
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=350,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = msg.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        dir_map = {"做多": "red", "做空": "cyan", "觀望": "gray"}
+        result["dir_color"] = dir_map.get(result.get("direction", "觀望"), "gray")
+        tst = timezone(timedelta(hours=8))
+        result["timestamp"] = datetime.now(tst).strftime("%H:%M:%S")
+        return result
+    except Exception as e:
+        return {"direction": "分析失敗", "dir_color": "gray", "confidence": "—",
+                "summary": f"錯誤：{str(e)[:60]}", "reasons": [], "risk": "—",
+                "timestamp": datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M:%S")}
 
 
 @app.post("/api/watchlist/add")
