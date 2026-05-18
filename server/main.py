@@ -18,20 +18,32 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-# Railway Volume 掛載在 /data，若不存在則用目前目錄（本機開發）
-_data_dir = Path("/data") if Path("/data").exists() else Path(".")
-WATCHLIST = _data_dir / "watchlist.json"
-DEFAULT_STOCKS = ["2330", "2317", "2454"]
+
+_WATCHLIST_PATHS = [Path("/data/watchlist.json"), Path("./watchlist.json")]
+
+
+def _wl_path() -> Path:
+    for p in _WATCHLIST_PATHS:
+        if p.exists():
+            return p
+    # 優先寫 /data，若不存在則用當前目錄
+    return _WATCHLIST_PATHS[0] if Path("/data").exists() else _WATCHLIST_PATHS[1]
 
 
 def load_wl() -> list:
-    if WATCHLIST.exists():
-        return json.loads(WATCHLIST.read_text(encoding="utf-8"))
-    return DEFAULT_STOCKS[:]
+    for p in _WATCHLIST_PATHS:
+        if p.exists():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return []   # 找不到檔案時回傳空清單，不套用預設股票
 
 
 def save_wl(stocks: list):
-    WATCHLIST.write_text(json.dumps(stocks, ensure_ascii=False), encoding="utf-8")
+    p = _wl_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(stocks, ensure_ascii=False), encoding="utf-8")
 
 
 @app.get("/")
