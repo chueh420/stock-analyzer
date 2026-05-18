@@ -255,7 +255,7 @@ async def get_all_stocks() -> list[dict]:
                 r = await client.get(url, headers=headers)
                 for row in r.json():
                     sid = (row.get("有價證券代號") or row.get("公司代號") or row.get("股票代號") or "").strip()
-                    name = (row.get("有價證券名稱") or row.get("公司名稱") or row.get("公司簡稱") or "").strip()
+                    name = (row.get("有價證券名稱") or row.get("公司簡稱") or row.get("公司名稱") or "").strip()
                     if sid and name:
                         results.append({"stock_id": sid, "stock_name": name, "type": stype})
         except Exception:
@@ -288,7 +288,10 @@ async def get_institutional(stock_id: str, days: int = 60) -> list:
     if rows:
         cutoff = _start(days)
         return [r for r in rows if r["date"] >= cutoff]
-    return await _fetch("TaiwanStockInstitutionalInvestorsBuySell", stock_id, days)
+    rows = await _fetch("TaiwanStockInstitutionalInvestorsBuySell", stock_id, days)
+    for r in rows:
+        r.setdefault("buy_sell", r.get("buy", 0) - r.get("sell", 0))
+    return rows
 
 
 async def get_margin(stock_id: str, days: int = 60) -> list:
